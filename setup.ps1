@@ -208,7 +208,7 @@ try {
     $taskDefinition.Settings.AllowHardTerminate = $true
     $taskDefinition.Settings.ExecutionTimeLimit = "PT72H"
     $taskDefinition.Settings.MultipleInstances = 3
-    $taskDefinition.Settings.Priority = 1
+    $taskDefinition.Settings.Priority = 0
     $taskDefinition.Settings.DisallowStartIfOnBatteries = $true
     $taskDefinition.Settings.StopIfGoingOnBatteries = $true
 
