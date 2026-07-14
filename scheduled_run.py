@@ -57,6 +57,10 @@ def acquire_lock(lock_path, stale_minutes):
 def main():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     config = load_config(os.path.join(script_dir, "config.json"))
+    if not config.get("ENABLE_SCHEDULED_TASK", True):
+        print("自动定时优选已在 config.json 中关闭；如需运行，请手动执行 main.py。")
+        return 0
+
     offset = float(config.get("SCHEDULE_TIMEZONE_OFFSET_HOURS", 8))
     now = datetime.now(timezone(timedelta(hours=offset)))
     run_now, busy, interval = should_run(now, config)

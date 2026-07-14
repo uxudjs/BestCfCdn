@@ -265,63 +265,87 @@ Add-GitIgnoreEntries -Path (Join-Path $ScriptDir ".gitignore") -Entries @(
 )
 Write-Host "✅ 文件检查完成（未覆盖已有 .gitignore）" -ForegroundColor Gray
 
-# ---------- 创建计划任务 ----------
-$firstRunTime = Get-NextAlignedTime -IntervalMinutes $TaskIntervalMinutes
-$startBoundaryStr = $firstRunTime.ToString("yyyy-MM-ddTHH:mm:ss")
-$startTimeDisplay = $firstRunTime.ToString("HH:mm")
-Write-Host "正在配置 Windows 计划任务 '$TaskName'..." -ForegroundColor Yellow
-
-$taskCreated = $false
+# ---------- 按配置创建或清理计划任务 ----------
+$scheduleEnabled = $true
+$configPath = Join-Path $ScriptDir "config.json"
 try {
-    $taskService = New-Object -ComObject Schedule.Service
-    $taskService.Connect()
-    $rootFolder = $taskService.GetFolder("\")
-    try { $rootFolder.DeleteTask($TaskName, 0) } catch { }
-
-    $taskDefinition = $taskService.NewTask(0)
-    $taskDefinition.RegistrationInfo.Description = "Cloudflare CDN 中国忙时每15分钟、非忙时每30分钟优选"
-    $taskDefinition.Principal.LogonType = 5
-    $taskDefinition.Principal.RunLevel = 1
-    $taskDefinition.Settings.Enabled = $true
-    $taskDefinition.Settings.StartWhenAvailable = $true
-    $taskDefinition.Settings.AllowHardTerminate = $true
-    $taskDefinition.Settings.ExecutionTimeLimit = "PT3H"
-    $taskDefinition.Settings.MultipleInstances = 2
-    $taskDefinition.Settings.Priority = 4
-    $taskDefinition.Settings.DisallowStartIfOnBatteries = $false
-    $taskDefinition.Settings.StopIfGoingOnBatteries = $false
-
-    $trigger = $taskDefinition.Triggers.Create(1)
-    $trigger.StartBoundary = $startBoundaryStr
-    $trigger.Repetition.Interval = "PT${TaskIntervalMinutes}M"
-    $trigger.Repetition.StopAtDurationEnd = $false
-    $trigger.Enabled = $true
-
-    $action = $taskDefinition.Actions.Create(0)
-    $action.Path = $PythonExePath
-    $action.Arguments = "-X utf8 `"$PythonScriptPath`""
-    $action.WorkingDirectory = $WorkingDirectory
-
-    $rootFolder.RegisterTaskDefinition($TaskName, $taskDefinition, 6, "SYSTEM", $null, 5) | Out-Null
-    $taskCreated = $true
-    Write-Host "✅ 计划任务创建成功（COM，SYSTEM，每15分钟检查）" -ForegroundColor Green
-} catch {
-    Write-Host "⚠️ COM 创建失败：$_" -ForegroundColor Yellow
-    Write-Host "  尝试 schtasks 备用方式..." -ForegroundColor Yellow
-    $taskCommand = "`"$PythonExePath`" -X utf8 `"$PythonScriptPath`""
-    $schtasksOk = Invoke-NativeCommand -FilePath "schtasks.exe" -Arguments @(
-        "/Create", "/TN", $TaskName,
-        "/TR", $taskCommand,
-        "/SC", "MINUTE", "/MO", "$TaskIntervalMinutes",
-        "/ST", $startTimeDisplay,
-        "/RU", "SYSTEM", "/RL", "HIGHEST", "/F"
-    ) -AllowFailure
-    if ($schtasksOk) {
-        $taskCreated = $true
-        Write-Host "✅ 计划任务创建成功（schtasks）" -ForegroundColor Green
+    $config = Get-Content -Path $configPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($null -ne $config.ENABLE_SCHEDULED_TASK) {
+        $scheduleEnabled = [System.Convert]::ToBoolean($config.ENABLE_SCHEDULED_TASK)
     }
+} catch {
+    throw "无法读取 config.json 中的 ENABLE_SCHEDULED_TASK：$_"
 }
-if (-not $taskCreated) { throw "Windows 计划任务创建失败。" }
+
+if (-not $scheduleEnabled) {
+    Write-Host "[5/5] 自动定时优选已关闭，正在清理本项目旧计划任务..." -ForegroundColor Yellow
+    try {
+        $taskService = New-Object -ComObject Schedule.Service
+        $taskService.Connect()
+        $rootFolder = $taskService.GetFolder("\")
+        try { $rootFolder.DeleteTask($TaskName, 0) } catch { }
+    } catch {
+        Write-Host "⚠️ 无法检查或删除旧计划任务：$_" -ForegroundColor Yellow
+    }
+    Write-Host "✅ 未启用计划任务；需要时请手动运行 main.py" -ForegroundColor Green
+} else {
+    $firstRunTime = Get-NextAlignedTime -IntervalMinutes $TaskIntervalMinutes
+    $startBoundaryStr = $firstRunTime.ToString("yyyy-MM-ddTHH:mm:ss")
+    $startTimeDisplay = $firstRunTime.ToString("HH:mm")
+    Write-Host "[5/5] 正在配置 Windows 计划任务 '$TaskName'..." -ForegroundColor Yellow
+
+    $taskCreated = $false
+    try {
+        $taskService = New-Object -ComObject Schedule.Service
+        $taskService.Connect()
+        $rootFolder = $taskService.GetFolder("\")
+        try { $rootFolder.DeleteTask($TaskName, 0) } catch { }
+
+        $taskDefinition = $taskService.NewTask(0)
+        $taskDefinition.RegistrationInfo.Description = "Cloudflare CDN 中国忙时每15分钟、非忙时每30分钟优选"
+        $taskDefinition.Principal.LogonType = 5
+        $taskDefinition.Principal.RunLevel = 1
+        $taskDefinition.Settings.Enabled = $true
+        $taskDefinition.Settings.StartWhenAvailable = $true
+        $taskDefinition.Settings.AllowHardTerminate = $true
+        $taskDefinition.Settings.ExecutionTimeLimit = "PT3H"
+        $taskDefinition.Settings.MultipleInstances = 2
+        $taskDefinition.Settings.Priority = 4
+        $taskDefinition.Settings.DisallowStartIfOnBatteries = $false
+        $taskDefinition.Settings.StopIfGoingOnBatteries = $false
+
+        $trigger = $taskDefinition.Triggers.Create(1)
+        $trigger.StartBoundary = $startBoundaryStr
+        $trigger.Repetition.Interval = "PT${TaskIntervalMinutes}M"
+        $trigger.Repetition.StopAtDurationEnd = $false
+        $trigger.Enabled = $true
+
+        $action = $taskDefinition.Actions.Create(0)
+        $action.Path = $PythonExePath
+        $action.Arguments = "-X utf8 `"$PythonScriptPath`""
+        $action.WorkingDirectory = $WorkingDirectory
+
+        $rootFolder.RegisterTaskDefinition($TaskName, $taskDefinition, 6, "SYSTEM", $null, 5) | Out-Null
+        $taskCreated = $true
+        Write-Host "✅ 计划任务创建成功（COM，SYSTEM，每15分钟检查）" -ForegroundColor Green
+    } catch {
+        Write-Host "⚠️ COM 创建失败：$_" -ForegroundColor Yellow
+        Write-Host "  尝试 schtasks 备用方式..." -ForegroundColor Yellow
+        $taskCommand = "`"$PythonExePath`" -X utf8 `"$PythonScriptPath`""
+        $schtasksOk = Invoke-NativeCommand -FilePath "schtasks.exe" -Arguments @(
+            "/Create", "/TN", $TaskName,
+            "/TR", $taskCommand,
+            "/SC", "MINUTE", "/MO", "$TaskIntervalMinutes",
+            "/ST", $startTimeDisplay,
+            "/RU", "SYSTEM", "/RL", "HIGHEST", "/F"
+        ) -AllowFailure
+        if ($schtasksOk) {
+            $taskCreated = $true
+            Write-Host "✅ 计划任务创建成功（schtasks）" -ForegroundColor Green
+        }
+    }
+    if (-not $taskCreated) { throw "Windows 计划任务创建失败。" }
+}
 
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan
@@ -329,7 +353,11 @@ Write-Host " 🎉 部署完成！" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "1. 在 config.json 填写 GITHUB_SYNC_TOKEN、GITHUB_SYNC_REPOSITORY 和 GITHUB_SYNC_FIELD_ID" -ForegroundColor White
 Write-Host "2. 微信推送默认关闭；需要时再填写 WxPusher 信息并启用" -ForegroundColor White
-Write-Host "3. 计划任务使用固定解释器：$PythonExePath" -ForegroundColor Gray
+if ($scheduleEnabled) {
+    Write-Host "3. 计划任务使用固定解释器：$PythonExePath" -ForegroundColor Gray
+} else {
+    Write-Host "3. 手动运行：& `"$PythonExePath`" `"$(Join-Path $ScriptDir 'main.py')`"" -ForegroundColor Gray
+}
 
 $response = Read-Host "是否立即运行一次 main.py 进行测试？(Y/N)"
 if ($response -match '^[Yy]$') {

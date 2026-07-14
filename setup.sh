@@ -151,19 +151,33 @@ if ! python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 9) el
     echo -e "${RED}❌ 需要 Python 3.9 或更高版本。${NC}" >&2
     exit 1
 fi
+if ! SCHEDULE_ENABLED=$(python3 -c '
+import json, os, sys
+path = sys.argv[1]
+config = json.load(open(path, encoding="utf-8-sig")) if os.path.exists(path) else {}
+value = config.get("ENABLE_SCHEDULED_TASK", True)
+if not isinstance(value, bool):
+    raise ValueError("ENABLE_SCHEDULED_TASK must be true or false")
+print("true" if value else "false")
+' "$SCRIPT_DIR/config.json"); then
+    echo -e "${RED}❌ 无法读取 config.json 中的 ENABLE_SCHEDULED_TASK。${NC}" >&2
+    exit 1
+fi
 ensure_command git git
 ensure_command curl curl
 
-if ! command_exists crontab; then
-    case "$PKG_MANAGER" in
-        apt) install_packages cron ;;
-        dnf|yum|pacman) install_packages cronie ;;
-        *) echo -e "${RED}❌ 请手动安装 cron/cronie。${NC}"; exit 1 ;;
-    esac
-fi
-if ! command_exists crontab; then
-    echo -e "${RED}❌ crontab 安装失败。${NC}" >&2
-    exit 1
+if [[ $SCHEDULE_ENABLED == true ]]; then
+    if ! command_exists crontab; then
+        case "$PKG_MANAGER" in
+            apt) install_packages cron ;;
+            dnf|yum|pacman) install_packages cronie ;;
+            *) echo -e "${RED}❌ 请手动安装 cron/cronie。${NC}"; exit 1 ;;
+        esac
+    fi
+    if ! command_exists crontab; then
+        echo -e "${RED}❌ crontab 安装失败。${NC}" >&2
+        exit 1
+    fi
 fi
 
 # ---------- 2. 项目虚拟环境 ----------
@@ -221,34 +235,49 @@ for entry in ".venv/" "__pycache__/" "*.py[cod]" ".cfnb_schedule.lock" "cron.log
 done
 echo -e "✅ 已保留原有 .gitignore，并补齐运行时条目"
 
-# ---------- 5. cron 计划任务 ----------
-echo -e "${GREEN}[5/5] 配置定时任务（每15分钟检查峰谷策略）...${NC}"
+# ---------- 5. 按配置创建或清理 cron 计划任务 ----------
 escaped_dir=${SCRIPT_DIR//\"/\\\"}
 CRON_COMMENT="# Cloudflare IP 优选工具（中国CF CDN忙时15分钟/非忙时30分钟）"
 CRON_CMD="*/15 * * * * cd \"$escaped_dir\" && \"$PYTHON_PATH\" \"$escaped_dir/$PYTHON_SCRIPT\" >> \"$escaped_dir/cron.log\" 2>&1"
 
-if [[ ${EUID} -eq 0 && $TARGET_USER != root ]]; then
-    EXISTING_CRONTAB=$(crontab -u "$TARGET_USER" -l 2>/dev/null || true)
-else
-    EXISTING_CRONTAB=$(crontab -l 2>/dev/null || true)
+if command_exists crontab; then
+    if [[ ${EUID} -eq 0 && $TARGET_USER != root ]]; then
+        EXISTING_CRONTAB=$(crontab -u "$TARGET_USER" -l 2>/dev/null || true)
+    else
+        EXISTING_CRONTAB=$(crontab -l 2>/dev/null || true)
+    fi
+    CLEANED_CRONTAB=$(printf '%s\n' "$EXISTING_CRONTAB" \
+        | grep -v -F "$SCRIPT_DIR/main.py" \
+        | grep -v -F "$SCRIPT_DIR/$PYTHON_SCRIPT" \
+        | grep -v -F "# Cloudflare IP 优选工具" || true)
 fi
-CLEANED_CRONTAB=$(printf '%s\n' "$EXISTING_CRONTAB" \
-    | grep -v -F "$SCRIPT_DIR/main.py" \
-    | grep -v -F "$SCRIPT_DIR/$PYTHON_SCRIPT" \
-    | grep -v -F "# Cloudflare IP 优选工具" || true)
 
-if [[ ${EUID} -eq 0 && $TARGET_USER != root ]]; then
-    (printf '%s\n' "$CLEANED_CRONTAB"; echo "$CRON_COMMENT"; echo "$CRON_CMD") \
-        | crontab -u "$TARGET_USER" -
+if [[ $SCHEDULE_ENABLED == true ]]; then
+    echo -e "${GREEN}[5/5] 配置定时任务（每15分钟检查峰谷策略）...${NC}"
+    if [[ ${EUID} -eq 0 && $TARGET_USER != root ]]; then
+        (printf '%s\n' "$CLEANED_CRONTAB"; echo "$CRON_COMMENT"; echo "$CRON_CMD") \
+            | crontab -u "$TARGET_USER" -
+    else
+        (printf '%s\n' "$CLEANED_CRONTAB"; echo "$CRON_COMMENT"; echo "$CRON_CMD") | crontab -
+    fi
+    echo -e "${GREEN}✅ 已为 $TARGET_USER 更新 cron 任务${NC}"
+    echo -e "   Python: $PYTHON_PATH"
+    echo -e "   日志: $SCRIPT_DIR/cron.log"
 else
-    (printf '%s\n' "$CLEANED_CRONTAB"; echo "$CRON_COMMENT"; echo "$CRON_CMD") | crontab -
+    echo -e "${GREEN}[5/5] 自动定时优选已关闭，正在清理本项目旧 cron 任务...${NC}"
+    if command_exists crontab; then
+        if [[ ${EUID} -eq 0 && $TARGET_USER != root ]]; then
+            printf '%s\n' "$CLEANED_CRONTAB" | crontab -u "$TARGET_USER" -
+        else
+            printf '%s\n' "$CLEANED_CRONTAB" | crontab -
+        fi
+    fi
+    echo -e "${GREEN}✅ 未启用 cron；需要时请手动运行 main.py${NC}"
 fi
-echo -e "${GREEN}✅ 已为 $TARGET_USER 更新 cron 任务${NC}"
-echo -e "   Python: $PYTHON_PATH"
-echo -e "   日志: $SCRIPT_DIR/cron.log"
 
 # 尝试启动 cron 服务；WSL、容器或非 systemd 环境失败时只提示。
-if command_exists systemctl && [[ ${EUID} -eq 0 || ${#PRIVILEGE[@]} -gt 0 ]]; then
+if [[ $SCHEDULE_ENABLED == true ]] && command_exists systemctl \
+    && [[ ${EUID} -eq 0 || ${#PRIVILEGE[@]} -gt 0 ]]; then
     cron_service=""
     systemctl list-unit-files cron.service >/dev/null 2>&1 && cron_service="cron"
     [[ -z $cron_service ]] && systemctl list-unit-files crond.service >/dev/null 2>&1 && cron_service="crond"
@@ -266,7 +295,11 @@ echo -e "========================================${NC}"
 echo -e "1. 在 config.json 填写 GitHub 同步信息和本终端唯一名称"
 echo -e "2. 微信推送默认关闭，需要时再启用"
 echo -e "3. 手动测试: ${CYAN}$PYTHON_PATH main.py${NC}"
-echo -e "4. 查看日志: ${CYAN}tail -f cron.log${NC}\n"
+if [[ $SCHEDULE_ENABLED == true ]]; then
+    echo -e "4. 查看日志: ${CYAN}tail -f cron.log${NC}\n"
+else
+    echo -e "4. 当前为手动模式，不会自动执行。${NC}\n"
+fi
 
 reply=""
 if [[ -t 0 ]]; then

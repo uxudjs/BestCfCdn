@@ -288,6 +288,9 @@
     "_comment_GITHUB_SYNC_CONFLICT_RETRIES": "多个终端同时更新时，因远端版本变化而重新拉取合并的最大次数",
 
     "_comment_schedule": "Cloudflare CDN 中国流量峰谷调度（北京时间）",
+    "ENABLE_SCHEDULED_TASK": true,
+    "_comment_ENABLE_SCHEDULED_TASK": "是否启用自动定时优选；false=不创建并清理本项目定时任务，仍可手动运行 main.py",
+
     "SCHEDULE_TIMEZONE_OFFSET_HOURS": 8,
     "_comment_SCHEDULE_TIMEZONE_OFFSET_HOURS": "调度时区相对 UTC 的小时偏移，中国大陆为8",
 

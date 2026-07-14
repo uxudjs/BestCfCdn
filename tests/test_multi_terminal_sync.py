@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest import mock
 
 import github_sync
 import scheduled_run
@@ -33,6 +34,11 @@ class ConfigDefaultsTests(unittest.TestCase):
             config = json.load(file)
         self.assertFalse(config["ENABLE_WXPUSHER"])
 
+    def test_scheduled_task_is_enabled_by_default_for_backward_compatibility(self):
+        with (PROJECT_ROOT / "config.json").open("r", encoding="utf-8-sig") as file:
+            config = json.load(file)
+        self.assertTrue(config["ENABLE_SCHEDULED_TASK"])
+
 
 class SetupScriptTests(unittest.TestCase):
     def test_powershell_scripts_have_utf8_bom_for_windows_powershell_51(self):
@@ -53,6 +59,8 @@ class SetupScriptTests(unittest.TestCase):
         self.assertIn('$env:PYTHONUTF8 = "1"', script)
         self.assertIn('"-X", "utf8"', script)
         self.assertNotIn("print('依赖导入验证通过')", script)
+        self.assertIn("ENABLE_SCHEDULED_TASK", script)
+        self.assertIn("DeleteTask($TaskName, 0)", script)
         self.assertNotIn("pip show", script)
 
     def test_scheduler_enables_utf8_for_child_process(self):
@@ -65,6 +73,8 @@ class SetupScriptTests(unittest.TestCase):
         self.assertIn('.venv/bin/python', script)
         self.assertIn("--timeout 120 --retries 10", script)
         self.assertIn("append_gitignore_entry", script)
+        self.assertIn("ENABLE_SCHEDULED_TASK", script)
+        self.assertIn("自动定时优选已关闭", script)
         self.assertNotIn("cat > .gitignore", script)
         self.assertNotIn("python3 -m pip install --upgrade pip", script)
 
@@ -135,6 +145,15 @@ class ScheduleTests(unittest.TestCase):
             self.assertEqual(
                 (should_run, False, 30), scheduled_run.should_run(now, self.CONFIG)
             )
+
+    @mock.patch("scheduled_run.subprocess.call")
+    @mock.patch(
+        "scheduled_run.load_config",
+        return_value={"ENABLE_SCHEDULED_TASK": False},
+    )
+    def test_disabled_schedule_does_not_launch_main(self, _load_config, call):
+        self.assertEqual(0, scheduled_run.main())
+        call.assert_not_called()
 
 
 if __name__ == "__main__":
