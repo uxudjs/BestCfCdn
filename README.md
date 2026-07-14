@@ -235,6 +235,7 @@ nano config.json
 
 > [!WARNING]
 > 从仍跟踪 `config.json` 的旧版本首次升级时，请优先运行 `update_fork.ps1` / `update_fork.sh`，不要直接 `git pull`。更新脚本会先备份本机 Token，再完成配置私有化迁移。
+> 如果旧版更新脚本在首次拉取后提示 `config.json 合并失败`，配置已从备份恢复且新版脚本已经下载；直接再次运行同一更新命令即可完成迁移。
 
 > [!IMPORTANT]
 > 更新脚本不会执行 `git reset --hard`，不会把 GitHub Token 写入远程 URL，也不会处理无关历史。GitHub 节点上报始终通过 `github_sync.py` 和 Contents API 完成。
