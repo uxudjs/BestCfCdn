@@ -243,6 +243,26 @@ nano config.json
 
 默认按北京时间划分：`18:00–24:00` 为 Cloudflare CDN 中国忙时，每 15 分钟筛选；其余时间每 30 分钟筛选。任务每 15 分钟唤醒一次，非忙时的 `:15` 和 `:45` 自动跳过。若上次筛选尚未结束，本轮也会自动跳过，避免重叠测速。
 
+如只想手动运行，请在 `config.json` 中设置：
+
+```json
+"ENABLE_SCHEDULED_TASK": false
+```
+
+然后重新执行一次 `setup.ps1`（Windows）或 `setup.sh`（Linux）。部署脚本会删除本项目已有的计划任务或 cron 条目，并且不会创建新任务。需要优选时手动执行：
+
+```powershell
+# Windows
+.\.venv\Scripts\python.exe -X utf8 main.py
+```
+
+```bash
+# Linux
+./.venv/bin/python main.py
+```
+
+手动运行 `main.py` 不受峰谷时段限制。以后把开关改回 `true` 并重新运行部署脚本，即可恢复自动调度。
+
 该默认窗口是工程化覆盖范围：[Cloudflare 官方说明](https://blog.cloudflare.com/http-requests-on-cloudflare-radar/)中，Radar 的 HTTP 字节指标对应 CDN 流量，且晚间内容流量会快速上升并在当地约 22 点达到峰值；中国区域可在 [Cloudflare Radar](https://radar.cloudflare.com/traffic/cn) 持续观察。实际网络不同，可通过 `SCHEDULE_CF_BUSY_START_HOUR` 和 `SCHEDULE_CF_BUSY_END_HOUR` 调整。
 
 **日志查看**：
@@ -471,6 +491,7 @@ nano config.json
 
 | 参数 | 类型 | 默认值 | 说明 |
 | :--- | :--- | :--- | :--- |
+| `ENABLE_SCHEDULED_TASK` | `boolean` | `true` | 是否创建并执行自动定时任务；关闭后仍可手动运行 `main.py` |
 | `SCHEDULE_TIMEZONE_OFFSET_HOURS` | `number` | `8` | 调度时区，默认北京时间 |
 | `SCHEDULE_CF_BUSY_START_HOUR` | `int` | `18` | CF CDN 中国忙时开始（含） |
 | `SCHEDULE_CF_BUSY_END_HOUR` | `int` | `24` | CF CDN 中国忙时结束（不含） |
