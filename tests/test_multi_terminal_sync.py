@@ -1,10 +1,37 @@
+import json
 import os
 import tempfile
 import unittest
 from datetime import datetime, timezone
+from pathlib import Path
 
 import github_sync
 import scheduled_run
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+class ConfigDefaultsTests(unittest.TestCase):
+    def test_terminal_field_is_at_top_and_can_be_loaded(self):
+        with (PROJECT_ROOT / "config.json").open("r", encoding="utf-8-sig") as file:
+            config = json.load(file)
+        keys = list(config)
+        self.assertEqual("GITHUB_SYNC_FIELD_ID", keys[1])
+
+        config.update(
+            {
+                "GITHUB_SYNC_TOKEN": "github_pat_test",
+                "GITHUB_SYNC_REPOSITORY": "owner/repo",
+                "GITHUB_SYNC_FIELD_ID": "济南联通",
+            }
+        )
+        self.assertEqual("济南联通", github_sync.validate_config(config)[4])
+
+    def test_wxpusher_is_disabled_by_default(self):
+        with (PROJECT_ROOT / "config.json").open("r", encoding="utf-8-sig") as file:
+            config = json.load(file)
+        self.assertFalse(config["ENABLE_WXPUSHER"])
 
 
 class GitHubSyncTests(unittest.TestCase):
