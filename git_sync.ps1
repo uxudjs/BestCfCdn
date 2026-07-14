@@ -4,12 +4,18 @@
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
-$python = Get-Command python -ErrorAction SilentlyContinue
-if (-not $python) { $python = Get-Command python3 -ErrorAction SilentlyContinue }
-if (-not $python) {
+$venvPython = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"
+if (Test-Path $venvPython) {
+    $pythonPath = $venvPython
+} else {
+    $python = Get-Command python.exe -CommandType Application -ErrorAction SilentlyContinue
+    if (-not $python) { $python = Get-Command python3.exe -CommandType Application -ErrorAction SilentlyContinue }
+    $pythonPath = if ($python) { $python.Source } else { $null }
+}
+if (-not $pythonPath) {
     Write-Host "❌ 未找到 Python" -ForegroundColor Red
     exit 1
 }
 
-& $python.Source (Join-Path $PSScriptRoot "github_sync.py") --input (Join-Path $PSScriptRoot "ip.txt")
+& $pythonPath (Join-Path $PSScriptRoot "github_sync.py") --input (Join-Path $PSScriptRoot "ip.txt")
 exit $LASTEXITCODE

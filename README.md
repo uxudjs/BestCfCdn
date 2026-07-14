@@ -52,9 +52,9 @@
 | 🔄 **峰谷定时运行** | 中国 CF CDN 忙时每 15 分钟，非忙时每 30 分钟 |
 | 🚀 **一键部署** | `setup.ps1` / `setup.sh` 自动安装依赖并配置 |
 | 📤 **多终端安全同步** | 每台终端只替换自己的 5 行，冲突时自动拉取并重新合并 |
-| 🔒 **隐私保护** | `.gitignore` 忽略敏感文件 |
+| 🔒 **隐私保护** | GitHub Token 不进入远程 URL；文档明确禁止提交真实密钥 |
 | 🖥️ **跨平台兼容** | 同时支持 Windows 和 Linux |
-| 🔧 **Fork 修复** | 内置 `update_fork.ps1` / `update_fork.sh`，解决 fork 后的历史冲突与认证问题 |
+| 🔄 **安全更新** | 内置 `update_fork.ps1` / `update_fork.sh`，快进更新并保留本机配置 |
 
 ---
 
@@ -70,9 +70,10 @@
 | `git_sync.sh` | Linux 手动同步入口 |
 | `setup.ps1` | Windows 一键部署脚本（安装依赖并配置计划任务） |
 | `setup.sh` | Linux 一键部署脚本（安装依赖并配置 cron） |
+| `requirements.txt` | Windows/Linux 共用的核心 Python 依赖清单 |
 | `ip.txt` | 最终优选节点列表（每次运行覆盖） |
-| `update_fork.ps1` | Windows 仓库修复脚本（解决 fork 后冲突/认证） |
-| `update_fork.sh` | Linux 仓库修复脚本（解决 fork 后冲突/认证） |
+| `update_fork.ps1` | Windows 安全更新脚本（备份并保留本机配置） |
+| `update_fork.sh` | Linux 安全更新脚本（备份并保留本机配置） |
 | `valid_tokens.txt` | ipinfo.io API Token 列表（每行一个，用于 IP 地区校准） |
 
 ---
@@ -81,7 +82,7 @@
 
 - **操作系统**：Windows 10+ / Windows Server 2016+ 或 Linux（Ubuntu/Debian/CentOS 等）
 - **必备软件**：
-  - **Python 3.7+**
+  - **Python 3.9+**
   - **Git**
   - **curl**（需在系统 PATH 中可用）
 - **Python 依赖**：`requests`, `aiohttp`, `brotlicffi`
@@ -103,7 +104,7 @@
 2. **配置各项令牌（见下一节）**  
    根据需求获取并填写 GitHub Token、Cloudflare API Token 和 WxPusher 凭证。
 
-> 💡 部署脚本会自动安装 `requests`、`aiohttp`、`brotlicffi` 三个 Python 依赖、创建 `.gitignore`，并配置中国 CF CDN 忙时 15 分钟、非忙时 30 分钟的定时任务。
+> 💡 部署脚本会创建项目专用 `.venv`，优先使用清华 PyPI 镜像并在失败时回退官方源；安装后会实际导入验证依赖。脚本只补充 `.gitignore`，不会覆盖已有内容，并配置中国 CF CDN 忙时 15 分钟、非忙时 30 分钟的定时任务。
 
 ---
 
@@ -144,8 +145,8 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 # 4. 编辑配置，填入 GitHub 令牌、仓库和终端名称
 notepad config.json
 
-# 5. 测试运行
-python main.py
+# 5. 测试运行（使用部署脚本创建的项目虚拟环境）
+.\.venv\Scripts\python.exe main.py
 ```
 
 ### Linux 部署
@@ -159,14 +160,14 @@ cd /path/to/cfnb
 # 2. 赋予执行权限
 chmod +x setup.sh
 
-# 3. 运行部署脚本（需要 sudo 安装软件包）
-sudo ./setup.sh
+# 3. 运行部署脚本（仅安装缺失系统软件时自动调用 sudo）
+./setup.sh
 
 # 4. 编辑配置，填入 GitHub 令牌、仓库和终端名称
 nano config.json
 
-# 5. 测试运行
-python3 main.py
+# 5. 测试运行（使用项目虚拟环境）
+./.venv/bin/python main.py
 ```
 
 <details>
@@ -176,9 +177,11 @@ python3 main.py
 
 1. 安装 [Python 3](https://www.python.org/downloads/)（勾选 “Add Python to PATH”）。
 2. 安装 [Git](https://git-scm.com/download/win) 和 [curl](https://curl.se/windows/)（curl 需加入 PATH）。
-3. 在项目目录打开命令提示符，安装依赖：
-   ```cmd
-   pip install requests aiohttp brotlicffi
+3. 在项目目录创建虚拟环境并安装依赖：
+   ```powershell
+   python -m venv .venv
+   .\.venv\Scripts\python.exe -m pip install --timeout 120 --retries 10 -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple -r requirements.txt
+   .\.venv\Scripts\python.exe -m pip install --timeout 120 --retries 10 -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple brotlicffi
    ```
 4. （可选）手动创建计划任务：
    - 按 `Win + R`，输入 `taskschd.msc` 打开任务计划程序。
@@ -193,11 +196,13 @@ python3 main.py
 1. 安装系统依赖（以 Debian/Ubuntu 为例）：
    ```bash
    sudo apt update
-   sudo apt install -y python3 python3-pip git curl
+   sudo apt install -y python3 python3-venv git curl cron
    ```
-2. 安装 Python 依赖：
+2. 创建项目虚拟环境并安装 Python 依赖：
    ```bash
-   pip3 install requests aiohttp brotlicffi
+   python3 -m venv .venv
+   ./.venv/bin/python -m pip install --timeout 120 --retries 10 -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple -r requirements.txt
+   ./.venv/bin/python -m pip install --timeout 120 --retries 10 -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple brotlicffi
    ```
 3. 赋予推送脚本执行权限（如果需要）：
    ```bash
@@ -205,7 +210,7 @@ python3 main.py
    ```
 4. （可选）添加 cron 任务：
    ```bash
-   (crontab -l 2>/dev/null; echo "*/15 * * * * cd $(pwd) && nice -n -10 /usr/bin/python3 $(pwd)/scheduled_run.py >> $(pwd)/cron.log 2>&1") | crontab -
+   (crontab -l 2>/dev/null; echo "*/15 * * * * cd $(pwd) && $(pwd)/.venv/bin/python $(pwd)/scheduled_run.py >> $(pwd)/cron.log 2>&1") | crontab -
    ```
 5. 验证：`crontab -l`
 
@@ -213,27 +218,19 @@ python3 main.py
 
 ---
 
-## 🔧 Fork 后无法推送？一键修复
+## 🔄 安全更新本地项目
 
-**适用于 fork 或修改远程仓库后，出现以下任一问题的情况：**
-
-- `git pull` 报错：`fatal: refusing to merge unrelated histories`
-- 推送时每次弹出浏览器要求登录
-
-**运行对应平台的一键修复脚本即可**（前提：已按前文填写好 `config.json` 与推送脚本中的令牌）
+需要从 GitHub 拉取最新版，同时保留本机 `config.json` 和 `ip.txt` 时，可运行：
 
 | 平台 | 命令 |
 | :--- | :--- |
 | Windows PowerShell | `.\update_fork.ps1` |
 | Linux | `chmod +x update_fork.sh && ./update_fork.sh` |
 
-脚本会自动完成：
-- 备份现有配置文件（可随时恢复）
-- 设置免认证远程地址
-- 强制对齐本地与远程仓库
-- 将你的令牌安全注入最新版本的文件（不覆盖其他参数）
+脚本会备份本机配置，只允许 `origin/main` 快进更新，并把本机配置值合并到最新版。若存在其他未提交代码，或本地与远端已经分叉，脚本会停止并保留备份。
 
-> 💡 运行成功后，`main.py` 即可正常自动推送，不再有任何冲突或弹窗。
+> [!IMPORTANT]
+> 更新脚本不会执行 `git reset --hard`，不会把 GitHub Token 写入远程 URL，也不会处理无关历史。GitHub 节点上报始终通过 `github_sync.py` 和 Contents API 完成。
 
 ---
 
@@ -752,8 +749,17 @@ python3 main.py
 <details>
 <summary>🔌 依赖与安装</summary>
 
-1. **提示 `ModuleNotFoundError: No module named 'requests'`**  
-   请执行 `pip install requests aiohttp brotlicffi` (Windows) 或 `pip3 install requests aiohttp brotlicffi` (Linux)。
+1. **提示 `ModuleNotFoundError: No module named 'requests'` 或访问 PyPI 超时**
+   Windows：
+   ```powershell
+   .\.venv\Scripts\python.exe -m pip install --timeout 120 --retries 10 -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple -r requirements.txt
+   .\.venv\Scripts\python.exe -m pip install --timeout 120 --retries 10 -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple brotlicffi
+   ```
+   Linux：
+   ```bash
+   ./.venv/bin/python -m pip install --timeout 120 --retries 10 -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple -r requirements.txt
+   ./.venv/bin/python -m pip install --timeout 120 --retries 10 -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple brotlicffi
+   ```
 
 2. **带宽测速被跳过**  
    请确保系统已安装 `curl` 且位于 PATH 环境变量中。

@@ -1,133 +1,89 @@
-#!/bin/bash
-# ======================================================
-# 一键同步 fork 并安全合并令牌（Linux 修复版）
-# ======================================================
-set -e
+#!/usr/bin/env bash
+# update_fork.sh - 安全更新当前仓库并保留本机配置
 
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
-cd "$(dirname "$0")"
+set -Eeuo pipefail
 
-# 检查 python3
-if ! command -v python3 &> /dev/null; then
-    echo -e "${RED}错误：未检测到 python3，请先安装 Python 3${NC}"
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+BRANCH="${1:-main}"
+
+command -v git >/dev/null 2>&1 || { echo -e "${RED}❌ 未找到 git，请先运行 setup.sh。${NC}"; exit 1; }
+if [[ -x $SCRIPT_DIR/.venv/bin/python ]]; then
+    PYTHON_PATH="$SCRIPT_DIR/.venv/bin/python"
+else
+    PYTHON_PATH="$(command -v python3 || true)"
+fi
+[[ -n $PYTHON_PATH ]] || { echo -e "${RED}❌ 未找到 Python，请先运行 setup.sh。${NC}"; exit 1; }
+
+git rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+    || { echo -e "${RED}❌ 当前目录不是 Git 仓库。${NC}"; exit 1; }
+CURRENT_BRANCH="$(git branch --show-current)"
+if [[ $CURRENT_BRANCH != "$BRANCH" ]]; then
+    echo -e "${RED}❌ 当前分支是 '$CURRENT_BRANCH'，请先切换到 '$BRANCH'。${NC}"
     exit 1
 fi
 
-BACKUP_DIR="$HOME/cfnb_token_backup_$(date +%Y%m%d_%H%M%S)"
-echo -e "${YELLOW}[1/6] 备份当前令牌文件到 $BACKUP_DIR${NC}"
+UNRELATED_CHANGES="$(git status --porcelain | grep -Ev '(^.. | -> )(config\.json|ip\.txt)$' || true)"
+if [[ -n $UNRELATED_CHANGES ]]; then
+    echo -e "${RED}❌ 检测到 config.json/ip.txt 之外的本地改动，已停止：${NC}"
+    printf '%s\n' "$UNRELATED_CHANGES"
+    echo "请先提交或暂存这些改动。"
+    exit 1
+fi
+
+BACKUP_DIR="$HOME/bestcfcdn_backup_$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$BACKUP_DIR"
-cp -f config.json "$BACKUP_DIR/config.json" 2>/dev/null || true
-cp -f git_sync.sh "$BACKUP_DIR/git_sync.sh" 2>/dev/null || true
-cp -f git_sync.ps1 "$BACKUP_DIR/git_sync.ps1" 2>/dev/null || true
-cp -f ip.txt "$BACKUP_DIR/ip.txt" 2>/dev/null || true
+for name in config.json ip.txt; do
+    [[ -f $name ]] && cp -f "$name" "$BACKUP_DIR/$name"
+done
+echo -e "${YELLOW}配置备份：$BACKUP_DIR${NC}"
 
-# 从备份的 git_sync.sh 中提取 GitHub 信息（通过临时 Python 文件，传参避免转义问题）
-echo -e "${YELLOW}正在从 git_sync.sh 提取令牌...${NC}"
-TMP_PY=$(mktemp /tmp/cfnb_extract.XXXX.py)
-cat > "$TMP_PY" << 'PYEOF'
-import re, sys
-file_path = sys.argv[1]
-with open(file_path, encoding='utf-8') as f:
-    text = f.read()
-token = re.search(r'github_token="(.+?)"', text)
-user  = re.search(r'github_username="(.+?)"', text)
-repo  = re.search(r'repo_name="(.+?)"', text)
-branch= re.search(r'branch="(.+?)"', text)
-print(token.group(1) if token else '')
-print(user.group(1) if user else '')
-print(repo.group(1) if repo else '')
-print(branch.group(1) if branch else '')
-PYEOF
+restore_backup() {
+    for name in config.json ip.txt; do
+        [[ -f $BACKUP_DIR/$name ]] && cp -f "$BACKUP_DIR/$name" "$name"
+    done
+}
+trap 'echo -e "${RED}更新失败，正在恢复配置备份。${NC}"; restore_backup' ERR
 
-read -r TOKEN USERNAME REPO BRANCH <<< $(python3 "$TMP_PY" "$BACKUP_DIR/git_sync.sh")
-rm -f "$TMP_PY"
-
-if [ -z "$TOKEN" ] || [ "$TOKEN" = "your_github_personal_access_token_here" ]; then
-    echo -e "${RED}错误：git_sync.sh 中的 GitHub Token 仍是占位符，请先填写真实令牌${NC}"
-    exit 1
+if git ls-files --error-unmatch config.json >/dev/null 2>&1; then
+    git restore --staged --worktree -- config.json
+fi
+if git ls-files --error-unmatch ip.txt >/dev/null 2>&1; then
+    git restore --staged --worktree -- ip.txt
+else
+    rm -f ip.txt
 fi
 
-# 如果 branch 是占位符，自动探测
-if [ -z "$BRANCH" ] || [ "$BRANCH" = "your_branch" ]; then
-    echo -e "${YELLOW}分支名为占位符，自动探测...${NC}"
-    git remote set-url origin "https://${TOKEN}@github.com/${USERNAME}/${REPO}.git" 2>/dev/null || true
-    BRANCH=$(git remote show origin | grep "HEAD branch" | cut -d " " -f5)
-    if [ -z "$BRANCH" ]; then
-        echo -e "${RED}无法自动探测分支，请在 git_sync.sh 中手动指定 branch=\"main\"${NC}"
-        exit 1
-    fi
-    echo -e "已探测到默认分支：$BRANCH"
-fi
-
-echo -e "${YELLOW}[2/6] 设置免认证远程地址${NC}"
-git remote set-url origin "https://${TOKEN}@github.com/${USERNAME}/${REPO}.git"
-
-echo -e "${YELLOW}[3/6] 拉取远程并强制对齐${NC}"
+echo -e "${YELLOW}拉取 origin/$BRANCH...${NC}"
 git fetch origin "$BRANCH"
-git reset --hard "origin/$BRANCH"
+git merge --ff-only "origin/$BRANCH"
 
-echo -e "${YELLOW}[4/6] 注入令牌到 config.json${NC}"
-TMP_MERGE=$(mktemp /tmp/cfnb_merge.XXXX.py)
-cat > "$TMP_MERGE" << 'PYEOF'
-import json, sys
-backup_config = sys.argv[1]
-current_config = 'config.json'
-with open(backup_config) as f:
-    backup = json.load(f)
-with open(current_config) as f:
-    current = json.load(f)
-token_fields = [
-    "WXPUSHER_APP_TOKEN", "WXPUSHER_UIDS",
-    "CF_API_TOKEN", "CF_ZONE_ID", "CF_DNS_RECORD_NAME"
-]
-for key in token_fields:
-    if key in backup and key in current:
-        current[key] = backup[key]
-with open(current_config, 'w') as f:
-    json.dump(current, f, indent=4, ensure_ascii=False)
-print("config.json 令牌注入完成")
-PYEOF
-python3 "$TMP_MERGE" "$BACKUP_DIR/config.json"
-rm -f "$TMP_MERGE"
+if [[ -f $BACKUP_DIR/config.json ]]; then
+    "$PYTHON_PATH" - "$BACKUP_DIR/config.json" "$SCRIPT_DIR/config.json" <<'PY'
+import json
+import sys
 
-echo -e "${YELLOW}[5/6] 更新 git_sync.sh（含 --allow-unrelated-histories）${NC}"
-TMP_SYNC=$(mktemp /tmp/cfnb_sync.XXXX.py)
-cat > "$TMP_SYNC" << PYEOF
-import re, sys
-token, username, repo, branch = sys.argv[1:]
-
-def update_file(filename):
-    try:
-        with open(filename, encoding='utf-8') as f:
-            text = f.read()
-    except FileNotFoundError:
-        return
-    text = re.sub(r'github_token=".*?"', f'github_token="{token}"', text)
-    text = re.sub(r'github_username=".*?"', f'github_username="{username}"', text)
-    text = re.sub(r'repo_name=".*?"', f'repo_name="{repo}"', text)
-    text = re.sub(r'branch=".*?"', f'branch="{branch}"', text)
-    if 'allow-unrelated-histories' not in text:
-        text = text.replace(
-            'git pull origin "$branch"',
-            'git pull origin "$branch" --allow-unrelated-histories'
-        )
-    with open(filename, 'w', encoding='utf-8') as f:
-        f.write(text)
-    print(f'{filename} 已更新')
-
-update_file('git_sync.sh')
-PYEOF
-python3 "$TMP_SYNC" "$TOKEN" "$USERNAME" "$REPO" "$BRANCH"
-rm -f "$TMP_SYNC"
-
-echo -e "${YELLOW}[6/6] 恢复 ip.txt${NC}"
-if [ -f "$BACKUP_DIR/ip.txt" ]; then
-    cp -f "$BACKUP_DIR/ip.txt" ip.txt
-    echo "ip.txt 已恢复"
+backup_path, current_path = sys.argv[1:]
+with open(backup_path, encoding="utf-8-sig") as file:
+    backup = json.load(file)
+with open(current_path, encoding="utf-8-sig") as file:
+    current = json.load(file)
+for key, value in backup.items():
+    if key in current and not key.startswith("_comment"):
+        current[key] = value
+with open(current_path, "w", encoding="utf-8") as file:
+    json.dump(current, file, ensure_ascii=False, indent=4)
+    file.write("\n")
+PY
 fi
+[[ -f $BACKUP_DIR/ip.txt ]] && cp -f "$BACKUP_DIR/ip.txt" ip.txt
+trap - ERR
 
-echo -e "${GREEN}========================================"
-echo -e " ✅ 一键更新完成！"
-echo -e "========================================${NC}"
-echo -e "备份保留在：$BACKUP_DIR"
-echo -e "可运行 python3 main.py 测试"
+echo -e "${GREEN}✅ 更新完成，已保留本机配置。${NC}"
+echo "未执行 reset --hard，也未将 Token 写入 Git URL。"
+echo "备份目录：$BACKUP_DIR"

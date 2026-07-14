@@ -34,6 +34,40 @@ class ConfigDefaultsTests(unittest.TestCase):
         self.assertFalse(config["ENABLE_WXPUSHER"])
 
 
+class SetupScriptTests(unittest.TestCase):
+    def test_windows_setup_uses_venv_retries_and_real_exit_codes(self):
+        script = (PROJECT_ROOT / "setup.ps1").read_text(encoding="utf-8-sig")
+        self.assertIn(".venv\\Scripts\\python.exe", script)
+        self.assertIn('"--timeout", "120"', script)
+        self.assertIn('"--retries", "10"', script)
+        self.assertIn("$LASTEXITCODE", script)
+        self.assertIn("curl.exe", script)
+        self.assertNotIn("pip show", script)
+
+    def test_linux_setup_uses_venv_and_preserves_gitignore(self):
+        script = (PROJECT_ROOT / "setup.sh").read_text(encoding="utf-8")
+        self.assertIn('.venv/bin/python', script)
+        self.assertIn("--timeout 120 --retries 10", script)
+        self.assertIn("append_gitignore_entry", script)
+        self.assertNotIn("cat > .gitignore", script)
+        self.assertNotIn("python3 -m pip install --upgrade pip", script)
+
+    def test_core_requirements_are_centralized(self):
+        requirements = {
+            line.strip()
+            for line in (PROJECT_ROOT / "requirements.txt").read_text().splitlines()
+            if line.strip() and not line.startswith("#")
+        }
+        self.assertEqual({"requests", "aiohttp"}, requirements)
+
+    def test_update_scripts_do_not_force_reset_or_embed_tokens(self):
+        for name in ("update_fork.ps1", "update_fork.sh"):
+            script = (PROJECT_ROOT / name).read_text(encoding="utf-8-sig")
+            self.assertIn("--ff-only", script)
+            self.assertNotIn("git reset --hard", script)
+            self.assertNotIn("@github.com", script)
+
+
 class GitHubSyncTests(unittest.TestCase):
     def test_prepare_local_nodes_caps_and_tags_results(self):
         content = "\n".join(

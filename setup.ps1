@@ -1,15 +1,120 @@
-﻿# setup.ps1 - Cloudflare IP 优选工具一键部署脚本（防闪退版）
-# 
-# 用法：直接双击运行，或右键“使用 PowerShell 运行”即可，脚本会自动请求管理员权限。
+# setup.ps1 - Cloudflare IP 优选工具 Windows 一键部署脚本
+# 用法：在项目目录执行 .\setup.ps1。脚本会按需请求管理员权限。
 
 $ErrorActionPreference = "Stop"
-$Host.UI.RawUI.WindowTitle = "Cloudflare IP 优选部署"
+try { $Host.UI.RawUI.WindowTitle = "Cloudflare IP 优选部署" } catch { }
 
-# ==================== 管理员权限检查与自动提权 ====================
+$TaskName = "Cloudflare IP 优选"
+$TaskIntervalMinutes = 15
+$PythonExePath = $null
+$ScriptDir = $PSScriptRoot
+$PythonScriptPath = Join-Path $ScriptDir "scheduled_run.py"
+$WorkingDirectory = $ScriptDir
+$TunaPyPI = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"
+$OfficialPyPI = "https://pypi.org/simple"
+
 function Test-Administrator {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
     $principal = New-Object Security.Principal.WindowsPrincipal $identity
     return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+function Refresh-EnvPath {
+    $machinePath = [System.Environment]::GetEnvironmentVariable("Path", "Machine")
+    $userPath = [System.Environment]::GetEnvironmentVariable("Path", "User")
+    $env:Path = "$machinePath;$userPath"
+}
+
+function Invoke-NativeCommand {
+    param(
+        [Parameter(Mandatory = $true)][string]$FilePath,
+        [string[]]$Arguments = @(),
+        [switch]$AllowFailure,
+        [switch]$Quiet
+    )
+
+    # Windows PowerShell 会把原生命令的 stderr 包装为 NativeCommandError。
+    # 暂时改为 Continue，并始终以真实退出码判断成功与否。
+    $oldPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $output = & $FilePath @Arguments 2>&1
+        $exitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $oldPreference
+    }
+
+    if (-not $Quiet -or $exitCode -ne 0) {
+        $output | ForEach-Object { Write-Host "  $_" }
+    }
+    if ($exitCode -ne 0 -and -not $AllowFailure) {
+        throw "命令执行失败（退出码 $exitCode）：$FilePath $($Arguments -join ' ')"
+    }
+    return ($exitCode -eq 0)
+}
+
+function Get-BootstrapPython {
+    $activeVenvPython = if ($env:VIRTUAL_ENV) {
+        Join-Path $env:VIRTUAL_ENV "Scripts\python.exe"
+    } else { $null }
+    if ($activeVenvPython -and (Test-Path $activeVenvPython)) {
+        return @{ Path = $activeVenvPython; Prefix = @() }
+    }
+
+    $python = Get-Command python.exe -CommandType Application -ErrorAction SilentlyContinue
+    if ($python) {
+        return @{ Path = $python.Source; Prefix = @() }
+    }
+    $pyLauncher = Get-Command py.exe -CommandType Application -ErrorAction SilentlyContinue
+    if ($pyLauncher) {
+        return @{ Path = $pyLauncher.Source; Prefix = @("-3") }
+    }
+    return $null
+}
+
+function Get-NextAlignedTime {
+    param([int]$IntervalMinutes = 15)
+    $now = Get-Date
+    $currentTotalMinutes = $now.Hour * 60 + $now.Minute
+    $nextTotalMinutes = ([math]::Floor($currentTotalMinutes / $IntervalMinutes) + 1) * $IntervalMinutes
+    return $now.Date.AddMinutes($nextTotalMinutes)
+}
+
+function Install-PythonPackages {
+    param(
+        [Parameter(Mandatory = $true)][string[]]$InstallArguments,
+        [Parameter(Mandatory = $true)][string]$Description
+    )
+
+    foreach ($indexUrl in $script:PipIndexUrls) {
+        Write-Host "  $Description（源：$indexUrl）..." -ForegroundColor Yellow
+        $pipArgs = @(
+            "-m", "pip", "install",
+            "--disable-pip-version-check",
+            "--timeout", "120",
+            "--retries", "10",
+            "--index-url", $indexUrl
+        ) + $InstallArguments
+        if (Invoke-NativeCommand -FilePath $script:PythonExePath -Arguments $pipArgs -AllowFailure) {
+            return $true
+        }
+        Write-Host "  ⚠️ 当前源安装失败，尝试下一个源。" -ForegroundColor Yellow
+    }
+    return $false
+}
+
+function Add-GitIgnoreEntries {
+    param([string]$Path, [string[]]$Entries)
+    if (-not (Test-Path $Path)) {
+        New-Item -ItemType File -Path $Path -Force | Out-Null
+    }
+    $existing = @(Get-Content -Path $Path -ErrorAction SilentlyContinue)
+    foreach ($entry in $Entries) {
+        if ($existing -notcontains $entry) {
+            Add-Content -Path $Path -Value $entry -Encoding UTF8
+            $existing += $entry
+        }
+    }
 }
 
 if (-not (Test-Administrator)) {
@@ -17,229 +122,163 @@ if (-not (Test-Administrator)) {
     Write-Host " Cloudflare IP 优选工具 - 智能部署" -ForegroundColor Cyan
     Write-Host "========================================" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "❌ 当前未以管理员身份运行。" -ForegroundColor Red
-    Write-Host ""
-    Write-Host "本脚本需要管理员权限才能创建计划任务。" -ForegroundColor Yellow
-    Write-Host ""
-    $choice = Read-Host "是否尝试以管理员身份重新启动脚本？(Y/N)"
-    if ($choice -eq 'Y' -or $choice -eq 'y') {
-        Write-Host "正在请求管理员权限..." -ForegroundColor Green
+    Write-Host "创建 SYSTEM 计划任务需要管理员权限。" -ForegroundColor Yellow
+    $choice = Read-Host "是否以管理员身份重新启动脚本？(Y/N)"
+    if ($choice -match '^[Yy]$') {
+        $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`""
         try {
-            $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`""
             Start-Process PowerShell -Verb RunAs -ArgumentList $arguments
             exit 0
         } catch {
-            Write-Host "❌ 无法自动提权: $_" -ForegroundColor Red
-            Write-Host ""
-            Write-Host "请手动操作：" -ForegroundColor Yellow
-            Write-Host "  1. 关闭此窗口。" -ForegroundColor White
-            Write-Host "  2. 按 Win + X，选择 'Windows PowerShell (管理员)'。" -ForegroundColor White
-            Write-Host "  3. 使用 cd 命令进入脚本所在目录：" -ForegroundColor White
-            Write-Host "     cd '$PSScriptRoot'" -ForegroundColor Cyan
-            Write-Host "  4. 执行 .\setup.ps1" -ForegroundColor White
-            Write-Host ""
-            Read-Host "按 Enter 键退出"
-            exit 1
+            Write-Host "❌ 无法自动提权：$_" -ForegroundColor Red
         }
-    } else {
-        Write-Host ""
-        Write-Host "请手动以管理员身份运行此脚本：" -ForegroundColor Yellow
-        Write-Host "  1. 关闭此窗口。" -ForegroundColor White
-        Write-Host "  2. 按 Win + X，选择 'Windows PowerShell (管理员)'。" -ForegroundColor White
-        Write-Host "  3. 使用 cd 命令进入脚本所在目录：" -ForegroundColor White
-        Write-Host "     cd '$PSScriptRoot'" -ForegroundColor Cyan
-        Write-Host "  4. 执行 .\setup.ps1" -ForegroundColor White
-        Write-Host ""
-        Read-Host "按 Enter 键退出"
-        exit 1
     }
+    Write-Host "请在管理员 PowerShell 中进入以下目录后重新运行：" -ForegroundColor Yellow
+    Write-Host "  cd '$PSScriptRoot'" -ForegroundColor Cyan
+    Write-Host "  .\setup.ps1" -ForegroundColor Cyan
+    exit 1
 }
 
-# 此时一定是以管理员身份运行了
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host " Cloudflare IP 优选工具 - 智能部署" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
-# ---------- 切换至脚本所在目录 ----------
-Set-Location $PSScriptRoot
-$ScriptDir = $PSScriptRoot
+Set-Location $ScriptDir
 Write-Host "工作目录: $ScriptDir`n" -ForegroundColor Gray
 
-# ==================== 计划任务配置 ====================
-$TaskName = "Cloudflare IP 优选"
-$TaskIntervalMinutes = 15
-$PythonExePath = $null
-$PythonScriptPath = Join-Path $ScriptDir "scheduled_run.py"
-$WorkingDirectory = $ScriptDir
-# ====================================================
-
-# ---------- 辅助函数：刷新环境变量 PATH ----------
-function Refresh-EnvPath {
-    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+# ---------- 1. 检测 Python 并固定使用项目虚拟环境 ----------
+Write-Host "[1/5] 检查 Python 与项目虚拟环境..." -ForegroundColor Green
+$bootstrap = Get-BootstrapPython
+if (-not $bootstrap) {
+    Write-Host "未检测到 Python，正在通过 winget 安装 Python 3..." -ForegroundColor Yellow
+    $winget = Get-Command winget.exe -CommandType Application -ErrorAction SilentlyContinue
+    if (-not $winget) {
+        throw "未找到 winget，请先从 https://www.python.org/downloads/ 安装 Python 3。"
+    }
+    $null = Invoke-NativeCommand -FilePath $winget.Source -Arguments @(
+        "install", "Python.Python.3", "--accept-package-agreements", "--accept-source-agreements"
+    )
+    Refresh-EnvPath
+    $bootstrap = Get-BootstrapPython
+    if (-not $bootstrap) { throw "Python 安装后仍无法检测，请重新打开 PowerShell 再运行。" }
 }
 
-# ---------- 计算下一个整15分钟时间（用于首次触发）----------
-function Get-NextAlignedTime {
-    param([int]$IntervalMinutes = 15)
-    $now = Get-Date
-    $currentTotalMinutes = $now.Hour * 60 + $now.Minute
-    $nextTotalMinutes = [math]::Ceiling($currentTotalMinutes / $IntervalMinutes) * $IntervalMinutes
-    $nextTime = $now.Date.AddMinutes($nextTotalMinutes)
-    return $nextTime
+$projectVenvPython = Join-Path $ScriptDir ".venv\Scripts\python.exe"
+if (-not (Test-Path $projectVenvPython)) {
+    Write-Host "  创建项目虚拟环境 .venv..." -ForegroundColor Yellow
+    $venvArgs = @($bootstrap.Prefix) + @("-m", "venv", (Join-Path $ScriptDir ".venv"))
+    $null = Invoke-NativeCommand -FilePath $bootstrap.Path -Arguments $venvArgs
+}
+if (-not (Test-Path $projectVenvPython)) { throw "项目虚拟环境创建失败。" }
+$PythonExePath = $projectVenvPython
+$versionOk = Invoke-NativeCommand -FilePath $PythonExePath -Arguments @(
+    "-c", "import sys; raise SystemExit(0 if sys.version_info >= (3, 9) else 1)"
+) -AllowFailure -Quiet
+if (-not $versionOk) { throw "需要 Python 3.9 或更高版本。" }
+Write-Host "✅ 项目 Python: $PythonExePath" -ForegroundColor Gray
+
+# ---------- 2. 检测 Git ----------
+Write-Host "[2/5] 检查 Git..." -ForegroundColor Green
+$git = Get-Command git.exe -CommandType Application -ErrorAction SilentlyContinue
+if (-not $git) {
+    Write-Host "未检测到 Git，正在通过 winget 安装..." -ForegroundColor Yellow
+    $winget = Get-Command winget.exe -CommandType Application -ErrorAction SilentlyContinue
+    if (-not $winget) { throw "未找到 winget，请手动安装 Git。" }
+    $null = Invoke-NativeCommand -FilePath $winget.Source -Arguments @(
+        "install", "Git.Git", "--accept-package-agreements", "--accept-source-agreements"
+    )
+    Refresh-EnvPath
+    $git = Get-Command git.exe -CommandType Application -ErrorAction SilentlyContinue
+}
+if (-not $git) { throw "Git 安装失败或尚未加入 PATH。" }
+Write-Host "✅ Git: $($git.Source)" -ForegroundColor Gray
+
+# ---------- 3. 检测真正的 curl.exe，避免误识别 PowerShell 别名 ----------
+Write-Host "[3/5] 检查 curl..." -ForegroundColor Green
+$curl = Get-Command curl.exe -CommandType Application -ErrorAction SilentlyContinue
+if (-not $curl) {
+    Write-Host "未检测到 curl.exe，正在通过 winget 安装..." -ForegroundColor Yellow
+    $winget = Get-Command winget.exe -CommandType Application -ErrorAction SilentlyContinue
+    if (-not $winget) { throw "未找到 winget，请手动安装 curl。" }
+    $null = Invoke-NativeCommand -FilePath $winget.Source -Arguments @(
+        "install", "cURL.cURL", "--accept-package-agreements", "--accept-source-agreements"
+    )
+    Refresh-EnvPath
+    $curl = Get-Command curl.exe -CommandType Application -ErrorAction SilentlyContinue
+}
+if (-not $curl) { throw "curl.exe 安装失败或尚未加入 PATH。" }
+Write-Host "✅ curl: $($curl.Source)" -ForegroundColor Gray
+
+# ---------- 4. 安装并实际导入验证 Python 依赖 ----------
+Write-Host "[4/5] 检查并安装 Python 依赖..." -ForegroundColor Green
+$PipIndexUrls = @()
+if ($env:PIP_INDEX_URL) { $PipIndexUrls += $env:PIP_INDEX_URL }
+foreach ($candidate in @($TunaPyPI, $OfficialPyPI)) {
+    if ($PipIndexUrls -notcontains $candidate) { $PipIndexUrls += $candidate }
 }
 
+$pipOk = Invoke-NativeCommand -FilePath $PythonExePath -Arguments @("-m", "pip", "--version") -AllowFailure -Quiet
+if (-not $pipOk) {
+    $null = Invoke-NativeCommand -FilePath $PythonExePath -Arguments @("-m", "ensurepip", "--upgrade")
+}
+
+if (-not (Install-PythonPackages -InstallArguments @("-r", (Join-Path $ScriptDir "requirements.txt")) -Description "安装核心依赖")) {
+    throw "requests 与 aiohttp 安装失败，请检查网络或代理设置。"
+}
+
+$brotliPresent = Invoke-NativeCommand -FilePath $PythonExePath -Arguments @(
+    "-c", "import importlib.util as u; raise SystemExit(0 if u.find_spec('brotlicffi') or u.find_spec('brotli') else 1)"
+) -AllowFailure -Quiet
+if (-not $brotliPresent) {
+    $brotliPresent = Install-PythonPackages -InstallArguments @("brotlicffi") -Description "安装 brotlicffi"
+    if (-not $brotliPresent) {
+        $brotliPresent = Install-PythonPackages -InstallArguments @("brotli") -Description "安装 brotli 备用实现"
+    }
+}
+if (-not $brotliPresent) { throw "Brotli 解压依赖安装失败。" }
+
+$importsOk = Invoke-NativeCommand -FilePath $PythonExePath -Arguments @(
+    "-c", "import requests, aiohttp, importlib.util as u; assert u.find_spec('brotlicffi') or u.find_spec('brotli'); print('依赖导入验证通过')"
+) -AllowFailure
+if (-not $importsOk) { throw "Python 依赖已安装但无法导入。" }
+Write-Host "✅ Python 依赖安装并验证完成" -ForegroundColor Green
+
+# ---------- 5. 保留已有 .gitignore，只补充运行时条目 ----------
+Write-Host "[5/5] 检查运行文件与 .gitignore..." -ForegroundColor Green
+if (-not (Test-Path $PythonScriptPath) -or -not (Test-Path (Join-Path $ScriptDir "main.py"))) {
+    throw "未找到 scheduled_run.py 或 main.py。"
+}
+Add-GitIgnoreEntries -Path (Join-Path $ScriptDir ".gitignore") -Entries @(
+    ".venv/", "__pycache__/", "*.py[cod]", ".cfnb_schedule.lock", "cron.log"
+)
+Write-Host "✅ 文件检查完成（未覆盖已有 .gitignore）" -ForegroundColor Gray
+
+# ---------- 创建计划任务 ----------
 $firstRunTime = Get-NextAlignedTime -IntervalMinutes $TaskIntervalMinutes
 $startBoundaryStr = $firstRunTime.ToString("yyyy-MM-ddTHH:mm:ss")
 $startTimeDisplay = $firstRunTime.ToString("HH:mm")
+Write-Host "正在配置 Windows 计划任务 '$TaskName'..." -ForegroundColor Yellow
 
-# ---------- 1. 检测/安装 Python ----------
-Write-Host "[1/4] 检查 Python..." -ForegroundColor Green
-$pythonCmd = Get-Command python -ErrorAction SilentlyContinue
-if (-not $pythonCmd) { $pythonCmd = Get-Command python3 -ErrorAction SilentlyContinue }
-if ($pythonCmd) {
-    $PythonExePath = $pythonCmd.Source
-    Write-Host "✅ Python 已安装: $PythonExePath" -ForegroundColor Gray
-} else {
-    Write-Host "未检测到 Python，正在尝试通过 winget 安装 Python 3..." -ForegroundColor Yellow
-    if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
-        Write-Host "❌ 未找到 winget，请手动安装 Python 3 并确保已添加到 PATH。" -ForegroundColor Red
-        Write-Host "下载地址: https://www.python.org/downloads/" -ForegroundColor White
-        Read-Host "按 Enter 键退出"
-        exit 1
-    }
-    winget install Python.Python.3 --accept-package-agreements --accept-source-agreements
-    Refresh-EnvPath
-    Start-Sleep -Seconds 5
-    $pythonCmd = Get-Command python -ErrorAction SilentlyContinue
-    if (-not $pythonCmd) { $pythonCmd = Get-Command python3 -ErrorAction SilentlyContinue }
-    if (-not $pythonCmd) {
-        Write-Host "❌ 未能自动检测到 Python，请手动安装后重新运行本脚本。" -ForegroundColor Red
-        Read-Host "按 Enter 键退出"
-        exit 1
-    }
-    $PythonExePath = $pythonCmd.Source
-    Write-Host "✅ Python 安装完成: $PythonExePath" -ForegroundColor Green
-}
-
-# ---------- 2. 检测/安装 Git ----------
-Write-Host "[2/4] 检查 Git..." -ForegroundColor Green
-$gitCmd = Get-Command git -ErrorAction SilentlyContinue
-if ($gitCmd) {
-    Write-Host "✅ Git 已安装: $($gitCmd.Source)" -ForegroundColor Gray
-} else {
-    Write-Host "未检测到 Git，正在通过 winget 安装 Git..." -ForegroundColor Yellow
-    winget install Git.Git --accept-package-agreements --accept-source-agreements
-    Write-Host "✅ Git 安装完成。" -ForegroundColor Green
-}
-
-# ---------- 3. 检测/安装 curl ----------
-Write-Host "[3/4] 检查 curl..." -ForegroundColor Green
-$curlCmd = Get-Command curl -ErrorAction SilentlyContinue
-if ($curlCmd) {
-    $curlPath = $curlCmd.Source
-    if (-not $curlPath) {
-        $curlPath = (Get-Command curl -CommandType Application -ErrorAction SilentlyContinue).Source
-    }
-    Write-Host "✅ curl 已安装: $curlPath" -ForegroundColor Gray
-} else {
-    Write-Host "未检测到 curl，正在通过 winget 安装 curl..." -ForegroundColor Yellow
-    winget install cURL.cURL --accept-package-agreements --accept-source-agreements
-    Write-Host "✅ curl 安装完成。" -ForegroundColor Green
-}
-
-# ---------- 4. 安装所有 Python 依赖（requests, aiohttp, brotlicffi）----------
-Write-Host "[4/4] 检查并安装 Python 依赖..." -ForegroundColor Green
-
-# 先升级 pip，确保安装过程顺畅
-Write-Host "  升级 pip..." -ForegroundColor Gray
-& $PythonExePath -m pip install --upgrade pip --quiet
-
-# 检查并安装 requests
-$reqInstalled = & $PythonExePath -m pip show requests 2>$null
-if (-not $reqInstalled) {
-    Write-Host "  安装 requests..." -ForegroundColor Yellow
-    & $PythonExePath -m pip install requests --quiet
-    Write-Host "  ✅ requests 安装完成" -ForegroundColor Green
-} else {
-    Write-Host "  ✅ requests 已安装" -ForegroundColor Gray
-}
-
-# 检查并安装 aiohttp
-$aioInstalled = & $PythonExePath -m pip show aiohttp 2>$null
-if (-not $aioInstalled) {
-    Write-Host "  安装 aiohttp..." -ForegroundColor Yellow
-    & $PythonExePath -m pip install aiohttp --quiet
-    Write-Host "  ✅ aiohttp 安装完成" -ForegroundColor Green
-} else {
-    Write-Host "  ✅ aiohttp 已安装" -ForegroundColor Gray
-}
-
-# 检查并安装 brotli 解压支持（优先 brotlicffi，纯 Python 实现，兼容性更好）
-$brotliInstalled = & $PythonExePath -m pip show brotlicffi 2>$null
-if (-not $brotliInstalled) {
-    $brotliInstalled = & $PythonExePath -m pip show brotli 2>$null
-}
-if (-not $brotliInstalled) {
-    Write-Host "  安装 brotlicffi（解压支持）..." -ForegroundColor Yellow
-    try {
-        & $PythonExePath -m pip install brotlicffi --quiet
-        Write-Host "  ✅ brotlicffi 安装完成" -ForegroundColor Green
-    } catch {
-        Write-Host "  ⚠️ brotlicffi 安装失败，尝试安装 brotli..." -ForegroundColor Yellow
-        & $PythonExePath -m pip install brotli --quiet
-        Write-Host "  ✅ brotli 安装完成" -ForegroundColor Green
-    }
-} else {
-    Write-Host "  ✅ brotli 解压库已安装" -ForegroundColor Gray
-}
-Write-Host ""
-
-# ---------- 创建 .gitignore 保护隐私 ----------
-Write-Host "正在创建 .gitignore..." -ForegroundColor Green
-$GitignorePath = Join-Path $ScriptDir ".gitignore"
-@"
-config.json
-git_sync.ps1
-git_sync.sh
-__pycache__/
-.cfnb_schedule.lock
-cron.log
-"@ | Out-File -FilePath $GitignorePath -Encoding utf8 -Force
-Write-Host "✅ .gitignore 已创建`n" -ForegroundColor Gray
-
-# ---------- 验证调度入口和主程序是否存在 ----------
-if (-not (Test-Path $PythonScriptPath) -or -not (Test-Path (Join-Path $ScriptDir "main.py"))) {
-    Write-Host "❌ 错误：未找到 scheduled_run.py 或 main.py。" -ForegroundColor Red
-    Read-Host "按 Enter 键退出"
-    exit 1
-}
-
-# ========== 创建计划任务（优先 COM 对象，失败后回退 schtasks） ==========
-Write-Host "正在配置 Windows 计划任务 '$TaskName' ..." -ForegroundColor Yellow
-Write-Host "   首次检查时间: $startBoundaryStr（CF忙时每15分钟，非忙时每30分钟）" -ForegroundColor Gray
-
+$taskCreated = $false
 try {
     $taskService = New-Object -ComObject Schedule.Service
     $taskService.Connect()
     $rootFolder = $taskService.GetFolder("\")
-
     try { $rootFolder.DeleteTask($TaskName, 0) } catch { }
 
     $taskDefinition = $taskService.NewTask(0)
     $taskDefinition.RegistrationInfo.Description = "Cloudflare CDN 中国忙时每15分钟、非忙时每30分钟优选"
-
     $taskDefinition.Principal.LogonType = 5
     $taskDefinition.Principal.RunLevel = 1
-
     $taskDefinition.Settings.Enabled = $true
-    $taskDefinition.Settings.StartWhenAvailable = $false
+    $taskDefinition.Settings.StartWhenAvailable = $true
     $taskDefinition.Settings.AllowHardTerminate = $true
-    $taskDefinition.Settings.ExecutionTimeLimit = "PT72H"
+    $taskDefinition.Settings.ExecutionTimeLimit = "PT3H"
     $taskDefinition.Settings.MultipleInstances = 2
-    $taskDefinition.Settings.Priority = 0
-    $taskDefinition.Settings.DisallowStartIfOnBatteries = $true
-    $taskDefinition.Settings.StopIfGoingOnBatteries = $true
+    $taskDefinition.Settings.Priority = 4
+    $taskDefinition.Settings.DisallowStartIfOnBatteries = $false
+    $taskDefinition.Settings.StopIfGoingOnBatteries = $false
 
     $trigger = $taskDefinition.Triggers.Create(1)
     $trigger.StartBoundary = $startBoundaryStr
@@ -252,67 +291,39 @@ try {
     $action.Arguments = "`"$PythonScriptPath`""
     $action.WorkingDirectory = $WorkingDirectory
 
-    $rootFolder.RegisterTaskDefinition(
-        $TaskName,
-        $taskDefinition,
-        6,
-        "SYSTEM",
-        $null,
-        5
-    ) | Out-Null
-
-    Write-Host "✅ 计划任务 '$TaskName' 创建成功！" -ForegroundColor Green
-    Write-Host "   创建方式: COM 对象" -ForegroundColor Gray
-    Write-Host "   触发器: 每15分钟检查；忙时执行每次，非忙时每隔一次执行" -ForegroundColor Gray
-    Write-Host "   执行命令: `"$PythonExePath`" `"$PythonScriptPath`"" -ForegroundColor Gray
-    Write-Host "   运行账户: SYSTEM" -ForegroundColor Gray
-    Write-Host "   电池设置: 仅交流电源时运行" -ForegroundColor Gray
-
+    $rootFolder.RegisterTaskDefinition($TaskName, $taskDefinition, 6, "SYSTEM", $null, 5) | Out-Null
+    $taskCreated = $true
+    Write-Host "✅ 计划任务创建成功（COM，SYSTEM，每15分钟检查）" -ForegroundColor Green
 } catch {
-    Write-Host "⚠️ COM 对象创建失败: $_" -ForegroundColor Yellow
-    Write-Host "   尝试使用 schtasks 命令作为备选方案..." -ForegroundColor Yellow
-
-    $schtasksArgs = @(
-        "/Create",
-        "/TN", $TaskName,
-        "/TR", "`"$PythonExePath`" `"$PythonScriptPath`"",
-        "/SC", "MINUTE",
-        "/MO", $TaskIntervalMinutes,
+    Write-Host "⚠️ COM 创建失败：$_" -ForegroundColor Yellow
+    Write-Host "  尝试 schtasks 备用方式..." -ForegroundColor Yellow
+    $taskCommand = "`"$PythonExePath`" `"$PythonScriptPath`""
+    $schtasksOk = Invoke-NativeCommand -FilePath "schtasks.exe" -Arguments @(
+        "/Create", "/TN", $TaskName,
+        "/TR", $taskCommand,
+        "/SC", "MINUTE", "/MO", "$TaskIntervalMinutes",
         "/ST", $startTimeDisplay,
-        "/SD", $firstRunTime.ToString("yyyy/MM/dd"),
-        "/RU", "SYSTEM",
-        "/F",
-        "/RL", "HIGHEST"
-    )
-
-    $result = & schtasks @schtasksArgs 2>&1
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host "✅ 计划任务 '$TaskName' 创建成功！" -ForegroundColor Green
-        Write-Host "   创建方式: schtasks" -ForegroundColor Gray
-    } else {
-        Write-Host "❌ 自动创建计划任务失败。" -ForegroundColor Red
-        Write-Host ""
-        Write-Host "请手动创建（详见控制台输出的指引）" -ForegroundColor Yellow
+        "/RU", "SYSTEM", "/RL", "HIGHEST", "/F"
+    ) -AllowFailure
+    if ($schtasksOk) {
+        $taskCreated = $true
+        Write-Host "✅ 计划任务创建成功（schtasks）" -ForegroundColor Green
     }
 }
+if (-not $taskCreated) { throw "Windows 计划任务创建失败。" }
 
-# ---------- 后续指引 ----------
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host " 🎉 部署完成！" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host ""
-Write-Host "👉 接下来请完成以下手动配置步骤：" -ForegroundColor White
-Write-Host "1. 编辑 config.json，填写 WxPusher 的 APP_TOKEN 和 UID（如需通知）" -ForegroundColor White
-Write-Host "2. 在 config.json 填写 GITHUB_SYNC_TOKEN、GITHUB_SYNC_REPOSITORY 和唯一的 GITHUB_SYNC_FIELD_ID" -ForegroundColor White
-Write-Host "3. 可选：在'任务计划程序' (taskschd.msc) 中查看或调整任务" -ForegroundColor Gray
-Write-Host "4. 手动运行一次测试：python main.py（或等待计划任务自动执行）" -ForegroundColor Green
-Write-Host ""
+Write-Host "1. 在 config.json 填写 GITHUB_SYNC_TOKEN、GITHUB_SYNC_REPOSITORY 和 GITHUB_SYNC_FIELD_ID" -ForegroundColor White
+Write-Host "2. 微信推送默认关闭；需要时再填写 WxPusher 信息并启用" -ForegroundColor White
+Write-Host "3. 计划任务使用固定解释器：$PythonExePath" -ForegroundColor Gray
 
 $response = Read-Host "是否立即运行一次 main.py 进行测试？(Y/N)"
-if ($response -eq 'Y' -or $response -eq 'y') {
-    Write-Host "正在运行 main.py ..." -ForegroundColor Cyan
-    & $PythonExePath (Join-Path $ScriptDir "main.py")
+if ($response -match '^[Yy]$') {
+    $runOk = Invoke-NativeCommand -FilePath $PythonExePath -Arguments @((Join-Path $ScriptDir "main.py")) -AllowFailure
+    if (-not $runOk) { Write-Host "⚠️ main.py 测试运行失败，请根据上方日志检查配置。" -ForegroundColor Yellow }
 }
 
 Read-Host "`n部署完成，按 Enter 键退出"
