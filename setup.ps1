@@ -4,6 +4,17 @@
 $ErrorActionPreference = "Stop"
 try { $Host.UI.RawUI.WindowTitle = "Cloudflare IP 优选部署" } catch { }
 
+# Windows PowerShell 5.1 会按当前系统代码页处理原生命令管道。
+# 强制 PowerShell 与所有 Python 子进程使用 UTF-8，避免 CP950/GBK 编码异常。
+$env:PYTHONUTF8 = "1"
+$env:PYTHONIOENCODING = "utf-8"
+try {
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [Console]::InputEncoding = $utf8NoBom
+    [Console]::OutputEncoding = $utf8NoBom
+    $OutputEncoding = $utf8NoBom
+} catch { }
+
 $TaskName = "Cloudflare IP 优选"
 $TaskIntervalMinutes = 15
 $PythonExePath = $null
@@ -239,7 +250,7 @@ if (-not $brotliPresent) {
 if (-not $brotliPresent) { throw "Brotli 解压依赖安装失败。" }
 
 $importsOk = Invoke-NativeCommand -FilePath $PythonExePath -Arguments @(
-    "-c", "import requests, aiohttp, importlib.util as u; assert u.find_spec('brotlicffi') or u.find_spec('brotli'); print('依赖导入验证通过')"
+    "-c", "import requests, aiohttp, importlib.util as u; assert u.find_spec('brotlicffi') or u.find_spec('brotli'); print('dependency import check passed')"
 ) -AllowFailure
 if (-not $importsOk) { throw "Python 依赖已安装但无法导入。" }
 Write-Host "✅ Python 依赖安装并验证完成" -ForegroundColor Green
@@ -288,7 +299,7 @@ try {
 
     $action = $taskDefinition.Actions.Create(0)
     $action.Path = $PythonExePath
-    $action.Arguments = "`"$PythonScriptPath`""
+    $action.Arguments = "-X utf8 `"$PythonScriptPath`""
     $action.WorkingDirectory = $WorkingDirectory
 
     $rootFolder.RegisterTaskDefinition($TaskName, $taskDefinition, 6, "SYSTEM", $null, 5) | Out-Null
@@ -297,7 +308,7 @@ try {
 } catch {
     Write-Host "⚠️ COM 创建失败：$_" -ForegroundColor Yellow
     Write-Host "  尝试 schtasks 备用方式..." -ForegroundColor Yellow
-    $taskCommand = "`"$PythonExePath`" `"$PythonScriptPath`""
+    $taskCommand = "`"$PythonExePath`" -X utf8 `"$PythonScriptPath`""
     $schtasksOk = Invoke-NativeCommand -FilePath "schtasks.exe" -Arguments @(
         "/Create", "/TN", $TaskName,
         "/TR", $taskCommand,
@@ -322,7 +333,9 @@ Write-Host "3. 计划任务使用固定解释器：$PythonExePath" -ForegroundCo
 
 $response = Read-Host "是否立即运行一次 main.py 进行测试？(Y/N)"
 if ($response -match '^[Yy]$') {
-    $runOk = Invoke-NativeCommand -FilePath $PythonExePath -Arguments @((Join-Path $ScriptDir "main.py")) -AllowFailure
+    $runOk = Invoke-NativeCommand -FilePath $PythonExePath -Arguments @(
+        "-X", "utf8", (Join-Path $ScriptDir "main.py")
+    ) -AllowFailure
     if (-not $runOk) { Write-Host "⚠️ main.py 测试运行失败，请根据上方日志检查配置。" -ForegroundColor Yellow }
 }
 

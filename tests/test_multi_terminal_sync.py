@@ -50,7 +50,15 @@ class SetupScriptTests(unittest.TestCase):
         self.assertIn('"--retries", "10"', script)
         self.assertIn("$LASTEXITCODE", script)
         self.assertIn("curl.exe", script)
+        self.assertIn('$env:PYTHONUTF8 = "1"', script)
+        self.assertIn('"-X", "utf8"', script)
+        self.assertNotIn("print('依赖导入验证通过')", script)
         self.assertNotIn("pip show", script)
+
+    def test_scheduler_enables_utf8_for_child_process(self):
+        script = (PROJECT_ROOT / "scheduled_run.py").read_text(encoding="utf-8")
+        self.assertIn('child_env.setdefault("PYTHONUTF8", "1")', script)
+        self.assertIn('child_env.setdefault("PYTHONIOENCODING", "utf-8")', script)
 
     def test_linux_setup_uses_venv_and_preserves_gitignore(self):
         script = (PROJECT_ROOT / "setup.sh").read_text(encoding="utf-8")
