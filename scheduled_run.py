@@ -72,7 +72,14 @@ def main():
         return 0
     try:
         print(f"[{now:%Y-%m-%d %H:%M}] {period_name}，开始优选（每{interval}分钟）")
-        return subprocess.call([sys.executable, os.path.join(script_dir, "main.py")], cwd=script_dir)
+        child_env = os.environ.copy()
+        child_env.setdefault("PYTHONUTF8", "1")
+        child_env.setdefault("PYTHONIOENCODING", "utf-8")
+        return subprocess.call(
+            [sys.executable, os.path.join(script_dir, "main.py")],
+            cwd=script_dir,
+            env=child_env,
+        )
     finally:
         try:
             os.remove(lock_path)

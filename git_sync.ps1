@@ -3,6 +3,13 @@
 
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
+$env:PYTHONUTF8 = "1"
+$env:PYTHONIOENCODING = "utf-8"
+try {
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [Console]::OutputEncoding = $utf8NoBom
+    $OutputEncoding = $utf8NoBom
+} catch { }
 
 $venvPython = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"
 if (Test-Path $venvPython) {
@@ -17,5 +24,5 @@ if (-not $pythonPath) {
     exit 1
 }
 
-& $pythonPath (Join-Path $PSScriptRoot "github_sync.py") --input (Join-Path $PSScriptRoot "ip.txt")
+& $pythonPath -X utf8 (Join-Path $PSScriptRoot "github_sync.py") --input (Join-Path $PSScriptRoot "ip.txt")
 exit $LASTEXITCODE
