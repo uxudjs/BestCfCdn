@@ -1,4 +1,4 @@
-# git_sync.ps1
+﻿# git_sync.ps1
 # 功能：调用并发安全同步程序，只更新 config.json 中本终端对应的节点。
 
 $ErrorActionPreference = "Stop"

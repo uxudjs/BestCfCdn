@@ -1,4 +1,4 @@
-# setup.ps1 - Cloudflare IP 优选工具 Windows 一键部署脚本
+﻿# setup.ps1 - Cloudflare IP 优选工具 Windows 一键部署脚本
 # 用法：在项目目录执行 .\setup.ps1。脚本会按需请求管理员权限。
 
 $ErrorActionPreference = "Stop"

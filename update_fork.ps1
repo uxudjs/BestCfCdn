@@ -1,4 +1,4 @@
-# update_fork.ps1 - 安全更新当前仓库并保留本机配置
+﻿# update_fork.ps1 - 安全更新当前仓库并保留本机配置
 param([string]$Branch = "main")
 
 $ErrorActionPreference = "Stop"

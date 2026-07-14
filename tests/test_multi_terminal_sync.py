@@ -35,6 +35,14 @@ class ConfigDefaultsTests(unittest.TestCase):
 
 
 class SetupScriptTests(unittest.TestCase):
+    def test_powershell_scripts_have_utf8_bom_for_windows_powershell_51(self):
+        for name in ("setup.ps1", "git_sync.ps1", "update_fork.ps1"):
+            content = (PROJECT_ROOT / name).read_bytes()
+            self.assertTrue(
+                content.startswith(b"\xef\xbb\xbf"),
+                f"{name} must use UTF-8 BOM for Windows PowerShell 5.1",
+            )
+
     def test_windows_setup_uses_venv_retries_and_real_exit_codes(self):
         script = (PROJECT_ROOT / "setup.ps1").read_text(encoding="utf-8-sig")
         self.assertIn(".venv\\Scripts\\python.exe", script)
