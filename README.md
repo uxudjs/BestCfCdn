@@ -257,7 +257,7 @@ python3 main.py
 ## ⚙️ 配置说明（完整参数详解）
 
 > [!NOTE]
-> 默认参数基于 **2核2G 云服务器** 测试通过。若在 **软路由、树莓派或低配 PC** 上运行，建议适当降低 `MAX_WORKERS`、`HTTP_TEST_WORKERS`、`BANDWIDTH_WORKERS`。
+> 默认参数按 **中国大陆跨境链路 + 2核2G 云服务器** 调优：使用北京时间、较宽松的网络超时与重试，并降低并发以减少家庭宽带/运营商 NAT 连接耗尽。若在软路由、树莓派或低配 PC 上运行，可继续降低 `MAX_WORKERS`、`HTTP_TEST_WORKERS`、`BANDWIDTH_WORKERS`。
 
 所有参数均位于 `config.json`，以下为逐项说明。
 
@@ -269,17 +269,17 @@ python3 main.py
 | `GLOBAL_TOP_N` | `int` | `5` | 全局模式保留节点数 |
 | `PER_COUNTRY_TOP_N` | `int` | `1` | 分国家模式每国保留节点数 |
 | `BANDWIDTH_CANDIDATES` | `int` | `150` | 进入测速的候选节点数 |
-| `DNS_UPDATE_TARGET_COUNT` | `int` | `15` | DNS 更新时写入的最大 IP 数量，独立于筛选模式 |
+| `DNS_UPDATE_TARGET_COUNT` | `int` | `5` | DNS 更新时最多写入5个最优 IP |
 
 ### TCP 连接测试参数
 
 | 参数 | 类型 | 默认值 | 说明 |
 | :--- | :--- | :--- | :--- |
-| `TCP_PROBES` | `int` | `1` | 每个节点 TCP 测试次数 |
+| `TCP_PROBES` | `int` | `2` | 每个节点 TCP 测试次数，降低跨境链路偶发抖动造成的误判 |
 | `MIN_SUCCESS_RATE` | `float` | `1.0` | 最低成功率阈值（0.0~1.0） |
 | `TCP_LATENCY_WEIGHT` | `float` | `0.0` | TCP延迟在综合排序中的权重（越大越排斥高TCP延迟） |
-| `TIMEOUT` | `float` | `2.0` | 单次 TCP 连接超时（秒） |
-| `SOCKET_DEFAULT_TIMEOUT` | `int` | `3` | 全局 Socket 默认超时（秒），防止永久阻塞 |
+| `TIMEOUT` | `float` | `3.0` | 单次 TCP 连接超时（秒） |
+| `SOCKET_DEFAULT_TIMEOUT` | `int` | `5` | 全局 Socket 默认超时（秒），防止永久阻塞 |
 | `PROGRESS_PRINT_INTERVAL` | `float` | `1` | 进度打印刷新间隔（秒），避免频繁 I/O |
 
 ### 综合排序权重
@@ -336,12 +336,12 @@ python3 main.py
 
 | 参数 | 类型 | 默认值 | 说明 |
 | :--- | :--- | :--- | :--- |
-| `ENABLE_WXPUSHER` | `boolean` | `true` | 是否启用微信通知 |
+| `ENABLE_WXPUSHER` | `boolean` | `false` | 是否启用微信通知，默认关闭 |
 | `WXPUSHER_APP_TOKEN` | `string` | `"your_app_token_here"` | **【必填】** WxPusher 的 APP_TOKEN |
 | `WXPUSHER_UIDS` | `array` | `["your_uid_here"]` | **【必填】** 接收通知的用户 UID 列表 |
 | `WXPUSHER_API_URL` | `string` | `"https://wxpusher.zjiecode.com/api/send/message"` | 消息发送 API 地址 |
-| `NOTIFY_TIMEOUT` | `int` | `3` | 微信通知 API 读取超时（秒） |
-| `NOTIFY_CONNECT_TIMEOUT` | `int` | `3` | 微信通知 API 连接超时（秒） |
+| `NOTIFY_TIMEOUT` | `int` | `8` | 微信通知 API 读取超时（秒） |
+| `NOTIFY_CONNECT_TIMEOUT` | `int` | `5` | 微信通知 API 连接超时（秒） |
 
 > 💡 若不需要通知，将 `ENABLE_WXPUSHER` 设为 `false` 即可。
 
@@ -355,8 +355,8 @@ python3 main.py
 | `CF_DNS_RECORD_NAME` | `string` | `"your_CF_DNS_RECORD_NAME"` | 完整子域名 |
 | `CF_TTL` | `int` | `60` | DNS 记录 TTL（秒） |
 | `CF_PROXIED` | `boolean` | `false` | 是否启用 Cloudflare CDN 代理 |
-| `CF_DNS_CONNECT_TIMEOUT` | `int` | `3` | Cloudflare API 连接超时（秒） |
-| `CF_DNS_READ_TIMEOUT` | `int` | `3` | Cloudflare API 读取超时（秒） |
+| `CF_DNS_CONNECT_TIMEOUT` | `int` | `5` | Cloudflare API 连接超时（秒） |
+| `CF_DNS_READ_TIMEOUT` | `int` | `10` | Cloudflare API 读取超时（秒） |
 | `DNS_RECORD_TYPE` | `string` | `"TXT"` | DNS 记录类型（A 或 TXT） |
 
 > 💡 若不需要 DNS 更新，将 `CF_ENABLED` 设为 `false` 即可。
@@ -369,10 +369,10 @@ python3 main.py
 | 参数 | 类型 | 默认值 | 说明 |
 | :--- | :--- | :--- | :--- |
 | `ADDITIONAL_SOURCES` | `array` | `[]` | 所有数据源列表，每个对象包含 `url`（必填）和 `enabled`（可选，默认true）。程序会自动识别并解析任何常见格式（标准代码/中文/emoji/JSON等） |
-| `FETCH_MAX_RETRIES` | `int` | `3` | 获取节点列表失败时的最大重试次数 |
-| `FETCH_RETRY_DELAY` | `int` | `3` | 获取节点列表重试间隔（秒） |
-| `FETCH_TIMEOUT` | `int` | `3` | 获取节点列表读取超时（秒） |
-| `FETCH_CONNECT_TIMEOUT` | `int` | `3` | 获取节点列表连接超时（秒） |
+| `FETCH_MAX_RETRIES` | `int` | `5` | 获取节点列表失败时的最大重试次数 |
+| `FETCH_RETRY_DELAY` | `int` | `5` | 获取节点列表重试间隔（秒） |
+| `FETCH_TIMEOUT` | `int` | `10` | 获取节点列表读取超时（秒） |
+| `FETCH_CONNECT_TIMEOUT` | `int` | `5` | 获取节点列表连接超时（秒） |
 | `OUTPUT_FILE` | `string` | `"ip.txt"` | 最终结果保存文件名 |
 | `ENABLE_LOGGING` | `boolean` | `false` | 是否启用运行日志（每次运行覆盖 LOG_FILE） |
 | `LOG_FILE` | `string` | `"cfnb.log"` | 运行日志文件名（仅在启用日志时生效） |
@@ -399,9 +399,9 @@ python3 main.py
 | :--- | :--- | :--- | :--- |
 | `TEST_AVAILABILITY` | `boolean` | `true` | 是否进行可用性二次筛选 |
 | `AVAILABILITY_CHECK_API` | `string` | `"https://api.090227.xyz/check"` | 可用性检测 API 地址 |
-| `AVAILABILITY_TIMEOUT` | `int` | `3` | 可用性 API 读取超时（秒） |
-| `AVAILABILITY_CONNECT_TIMEOUT` | `int` | `3` | 可用性 API 连接超时（秒） |
-| `AVAILABILITY_RETRY_MAX` | `int` | `2` | 可用性检测最大重试轮数 |
+| `AVAILABILITY_TIMEOUT` | `int` | `8` | 可用性 API 读取超时（秒） |
+| `AVAILABILITY_CONNECT_TIMEOUT` | `int` | `5` | 可用性 API 连接超时（秒） |
+| `AVAILABILITY_RETRY_MAX` | `int` | `3` | 可用性检测最大重试轮数 |
 | `AVAILABILITY_RETRY_DELAY` | `int` | `3` | 可用性检测重试间隔（秒） |
 | `AVAILABILITY_INNER_RETRY_ENABLED` | `boolean` | `true` | 可用性检测是否启用单节点内部重试 |
 | `AVAILABILITY_INNER_RETRY_MAX` | `int` | `2` | 可用性检测单节点内部最大重试次数 |
@@ -414,12 +414,12 @@ python3 main.py
 | 参数 | 类型 | 默认值 | 说明 |
 | :--- | :--- | :--- | :--- |
 | `HTTP_TEST_ENABLED` | `boolean` | `true` | 是否启用 HTTP检测（过滤 HTTP 响应头非Cloudflare 的节点） |
-| `HTTP_TEST_TIMEOUT` | `int` | `3` | 单次 HTTP 请求读取超时（秒） |
-| `HTTP_TEST_CONNECT_TIMEOUT` | `int` | `3` | HTTP 检测的连接超时（秒），与读取超时分离 |
+| `HTTP_TEST_TIMEOUT` | `int` | `8` | 单次 HTTP 请求读取超时（秒） |
+| `HTTP_TEST_CONNECT_TIMEOUT` | `int` | `5` | HTTP 检测的连接超时（秒），与读取超时分离 |
 | `HTTP_TEST_INNER_RETRY_ENABLED` | `boolean` | `true` | HTTP 检测是否启用单节点内部重试 |
 | `HTTP_TEST_MAX_RETRIES` | `int` | `2` | 单节点 HTTP 请求超时重试次数 |
 | `HTTP_TEST_RETRY_DELAY` | `int` | `3` | HTTP 请求重试间隔（秒） |
-| `HTTP_TEST_MAX_ROUNDS` | `int` | `2` | 整体失败（通过率为0）时的最大重试轮数 |
+| `HTTP_TEST_MAX_ROUNDS` | `int` | `3` | 整体失败（通过率为0）时的最大重试轮数 |
 | `HTTP_TEST_ROUND_DELAY` | `int` | `3` | 整体重试间隔（秒） |
 | `HTTP_TEST_METHOD` | `string` | `"HEAD"` | 请求方法（`GET` 或 `HEAD`） |
 
@@ -429,34 +429,34 @@ python3 main.py
 
 | 参数 | 类型 | 默认值 | 说明 |
 | :--- | :--- | :--- | :--- |
-| `BANDWIDTH_SIZE_MB` | `float` | `1.0` | 测速下载文件大小（MB） |
-| `BANDWIDTH_TIMEOUT` | `int` | `3` | 单个节点带宽测速超时（秒） |
+| `BANDWIDTH_SIZE_MB` | `float` | `2.0` | 测速下载文件大小（MB），降低短时突发对结果的影响 |
+| `BANDWIDTH_TIMEOUT` | `int` | `8` | 单个节点带宽测速超时（秒） |
 | `BANDWIDTH_RETRY_MAX` | `int` | `2` | 带宽测速整体重试轮数 |
 | `BANDWIDTH_RETRY_DELAY` | `int` | `3` | 带宽测速重试间隔（秒） |
 | `BANDWIDTH_URL_TEMPLATE` | `string` | `"https://speed.cloudflare.com/__down?bytes={bytes}"` | 测速 URL 模板 |
 | `BANDWIDTH_PROCESS_BUFFER` | `int` | `2` | curl 进程额外缓冲时间（秒） |
-| `BANDWIDTH_CONNECT_TIMEOUT` | `int` | `3` | curl 测速连接超时（秒） |
+| `BANDWIDTH_CONNECT_TIMEOUT` | `int` | `5` | curl 测速连接超时（秒） |
 
 **并发控制参数**
 
 | 参数 | 类型 | 默认值 | 说明 |
 | :--- | :--- | :--- | :--- |
-| `IP_CALIBRATION_CONCURRENCY` | `int` | `300` | 地区校准的异步并发数 |
-| `MAX_WORKERS` | `int` | `300` | TCP 并发测试最大线程数 |
-| `AVAILABILITY_WORKERS` | `int` | `32` | 可用性检测并发数 |
-| `FALLBACK_WORKERS` | `int` | `32` | 备用国家查询的并发线程数（当标签无法识别时自动调用可用性API查询国家） |
-| `HTTP_TEST_WORKERS` | `int` | `32` | HTTP 检测并发线程数 |
-| `BANDWIDTH_WORKERS` | `int` | `3` | 带宽测速并发数 |
+| `IP_CALIBRATION_CONCURRENCY` | `int` | `100` | 地区校准的异步并发数 |
+| `MAX_WORKERS` | `int` | `150` | TCP 并发测试最大线程数 |
+| `AVAILABILITY_WORKERS` | `int` | `16` | 可用性检测并发数 |
+| `FALLBACK_WORKERS` | `int` | `16` | 备用国家查询的并发线程数（当标签无法识别时自动调用可用性API查询国家） |
+| `HTTP_TEST_WORKERS` | `int` | `16` | HTTP 检测并发线程数 |
+| `BANDWIDTH_WORKERS` | `int` | `2` | 带宽测速并发数 |
 
 **重试策略配置**
 
 | 参数 | 类型 | 默认值 | 说明 |
 | :--- | :--- | :--- | :--- |
-| `DNS_UPDATE_MAX_RETRIES` | `int` | `3` | DNS 更新最大重试次数 |
-| `DNS_UPDATE_RETRY_DELAY` | `int` | `3` | DNS 更新重试间隔（秒） |
-| `GITHUB_SYNC_MAX_RETRIES` | `int` | `3` | GitHub 推送最大重试次数 |
-| `GITHUB_SYNC_RETRY_DELAY` | `int` | `3` | GitHub 推送重试间隔（秒） |
-| `GIT_SYNC_PROCESS_TIMEOUT` | `int` | `180` | Git 同步子进程最大运行时间（秒） |
+| `DNS_UPDATE_MAX_RETRIES` | `int` | `5` | DNS 更新最大重试次数 |
+| `DNS_UPDATE_RETRY_DELAY` | `int` | `5` | DNS 更新重试间隔（秒） |
+| `GITHUB_SYNC_MAX_RETRIES` | `int` | `5` | GitHub 推送最大重试次数 |
+| `GITHUB_SYNC_RETRY_DELAY` | `int` | `5` | GitHub 推送重试间隔（秒） |
+| `GIT_SYNC_PROCESS_TIMEOUT` | `int` | `300` | Git 同步子进程最大运行时间（秒） |
 
 **多终端 GitHub 同步参数**
 
@@ -468,7 +468,7 @@ python3 main.py
 | `GITHUB_SYNC_REMOTE_PATH` | `string` | `ip.txt` | 远端汇总文件路径 |
 | `GITHUB_SYNC_FIELD_ID` | `string` | 占位符 | 每台终端唯一名称 |
 | `GITHUB_SYNC_TOP_N` | `int` | `5` | 每台终端最多上报节点数 |
-| `GITHUB_SYNC_CONFLICT_RETRIES` | `int` | `5` | SHA 冲突时重新拉取合并次数 |
+| `GITHUB_SYNC_CONFLICT_RETRIES` | `int` | `8` | SHA 冲突时重新拉取合并次数 |
 
 **Cloudflare CDN 中国峰谷调度参数**
 
