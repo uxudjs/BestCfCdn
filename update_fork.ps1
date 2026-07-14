@@ -4,6 +4,13 @@ param([string]$Branch = "main")
 $ErrorActionPreference = "Stop"
 try { $Host.UI.RawUI.WindowTitle = "BestCfCdn 安全更新" } catch { }
 Set-Location $PSScriptRoot
+$env:PYTHONUTF8 = "1"
+$env:PYTHONIOENCODING = "utf-8"
+try {
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [Console]::OutputEncoding = $utf8NoBom
+    $OutputEncoding = $utf8NoBom
+} catch { }
 
 function Invoke-Git {
     param([string[]]$Arguments, [switch]$AllowFailure, [switch]$Quiet)
@@ -100,7 +107,7 @@ with open(current_path, "w", encoding="utf-8") as f:
     json.dump(current, f, ensure_ascii=False, indent=4)
     f.write("\n")
 '@
-        & $PythonPath -c $mergeCode $configBackup (Join-Path $PSScriptRoot "config.json")
+        & $PythonPath -X utf8 -c $mergeCode $configBackup (Join-Path $PSScriptRoot "config.json")
         if ($LASTEXITCODE -ne 0) { throw "config.json 合并失败。" }
     }
     $ipBackup = Join-Path $BackupDir "ip.txt"
