@@ -59,10 +59,10 @@ if ($currentBranch -ne $Branch) {
 
 $statusResult = Invoke-Git -Arguments @("status", "--porcelain") -Quiet
 $unrelatedChanges = @($statusResult.Output | Where-Object {
-    $_ -and $_ -notmatch '(?:^.. | -> )(config\.json|ip\.txt)$'
+    $_ -and $_ -notmatch '(?:^.. | -> )(config\.json|ip\.txt|ip\.local\.txt)$'
 })
 if ($unrelatedChanges.Count -gt 0) {
-    Write-Host "检测到 config.json/ip.txt 之外的本地改动，已停止以免覆盖：" -ForegroundColor Red
+    Write-Host "检测到本机配置/结果之外的本地改动，已停止以免覆盖：" -ForegroundColor Red
     $unrelatedChanges | ForEach-Object { Write-Host "  $_" }
     throw "请先提交或暂存上述改动。"
 }
@@ -70,8 +70,17 @@ if ($unrelatedChanges.Count -gt 0) {
 $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
 $BackupDir = Join-Path $HOME "bestcfcdn_backup_$timestamp"
 New-Item -ItemType Directory -Force -Path $BackupDir | Out-Null
-foreach ($name in @("config.json", "ip.txt")) {
+foreach ($name in @("config.json", "ip.local.txt")) {
     if (Test-Path $name) { Copy-Item $name (Join-Path $BackupDir $name) -Force }
+}
+$legacyIpBackup = Join-Path $BackupDir "ip.legacy.txt"
+if (Test-Path "ip.txt") {
+    $ipTrackedBeforeUpdate = Invoke-Git -Arguments @("ls-files", "--error-unmatch", "ip.txt") -AllowFailure -Quiet
+    $ipWorktreeClean = Invoke-Git -Arguments @("diff", "--quiet", "--", "ip.txt") -AllowFailure -Quiet
+    $ipIndexClean = Invoke-Git -Arguments @("diff", "--cached", "--quiet", "--", "ip.txt") -AllowFailure -Quiet
+    if (-not $ipTrackedBeforeUpdate.Success -or -not $ipWorktreeClean.Success -or -not $ipIndexClean.Success) {
+        Copy-Item "ip.txt" $legacyIpBackup -Force
+    }
 }
 Write-Host "配置备份：$BackupDir" -ForegroundColor Yellow
 
@@ -92,36 +101,48 @@ try {
     $null = Invoke-Git -Arguments @("merge", "--ff-only", "origin/$Branch")
 
     $configBackup = Join-Path $BackupDir "config.json"
+    $configTemplate = Join-Path $PSScriptRoot "config.example.json"
+    if (-not (Test-Path $configTemplate)) { throw "更新后缺少 config.example.json。" }
     if (Test-Path $configBackup) {
         $mergeCode = @'
-import json, sys
-backup_path, current_path = sys.argv[1:]
+import json, os, sys
+backup_path, template_path, output_path = sys.argv[1:]
 with open(backup_path, encoding="utf-8-sig") as f:
     backup = json.load(f)
-with open(current_path, encoding="utf-8-sig") as f:
+with open(template_path, encoding="utf-8-sig") as f:
     current = json.load(f)
+legacy_remote = str(backup.get("GITHUB_SYNC_REMOTE_PATH", "ip.txt")).strip()
 for key, value in backup.items():
     if key in current and not key.startswith("_comment"):
+        if key == "OUTPUT_FILE" and os.path.normcase(os.path.normpath(str(value))) == os.path.normcase(os.path.normpath(legacy_remote)):
+            continue
         current[key] = value
-with open(current_path, "w", encoding="utf-8") as f:
+with open(output_path, "w", encoding="utf-8") as f:
     json.dump(current, f, ensure_ascii=False, indent=4)
     f.write("\n")
 '@
-        & $PythonPath -X utf8 -c $mergeCode $configBackup (Join-Path $PSScriptRoot "config.json")
+        & $PythonPath -X utf8 -c $mergeCode $configBackup $configTemplate (Join-Path $PSScriptRoot "config.json")
         if ($LASTEXITCODE -ne 0) { throw "config.json 合并失败。" }
+    } else {
+        Copy-Item $configTemplate (Join-Path $PSScriptRoot "config.json") -Force
     }
-    $ipBackup = Join-Path $BackupDir "ip.txt"
-    if (Test-Path $ipBackup) { Copy-Item $ipBackup "ip.txt" -Force }
+    $localIpBackup = Join-Path $BackupDir "ip.local.txt"
+    if (Test-Path $localIpBackup) {
+        Copy-Item $localIpBackup "ip.local.txt" -Force
+    } elseif (Test-Path $legacyIpBackup) {
+        Copy-Item $legacyIpBackup "ip.local.txt" -Force
+    }
 } catch {
-    foreach ($name in @("config.json", "ip.txt")) {
+    foreach ($name in @("config.json", "ip.local.txt")) {
         $backupPath = Join-Path $BackupDir $name
         if (Test-Path $backupPath) { Copy-Item $backupPath $name -Force }
     }
+    if (Test-Path $legacyIpBackup) { Copy-Item $legacyIpBackup "ip.txt" -Force }
     throw
 }
 
 Write-Host ""
-Write-Host "✅ 更新完成，已保留本机配置。" -ForegroundColor Green
+Write-Host "✅ 更新完成，已保留本机配置与本机优选结果。" -ForegroundColor Green
 Write-Host "未执行 reset --hard，也未将 Token 写入 Git URL。" -ForegroundColor Gray
 Write-Host "备份目录：$BackupDir" -ForegroundColor Gray
 Read-Host "按 Enter 键退出"

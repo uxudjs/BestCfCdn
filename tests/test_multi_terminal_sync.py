@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest import mock
 
 import github_sync
+import local_state
 import scheduled_run
 
 
@@ -14,8 +15,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 class ConfigDefaultsTests(unittest.TestCase):
+    CONFIG_TEMPLATE = PROJECT_ROOT / "config.example.json"
+
     def test_terminal_field_is_at_top_and_can_be_loaded(self):
-        with (PROJECT_ROOT / "config.json").open("r", encoding="utf-8-sig") as file:
+        with self.CONFIG_TEMPLATE.open("r", encoding="utf-8-sig") as file:
             config = json.load(file)
         keys = list(config)
         self.assertEqual("GITHUB_SYNC_FIELD_ID", keys[1])
@@ -30,14 +33,32 @@ class ConfigDefaultsTests(unittest.TestCase):
         self.assertEqual("济南联通", github_sync.validate_config(config)[4])
 
     def test_wxpusher_is_disabled_by_default(self):
-        with (PROJECT_ROOT / "config.json").open("r", encoding="utf-8-sig") as file:
+        with self.CONFIG_TEMPLATE.open("r", encoding="utf-8-sig") as file:
             config = json.load(file)
         self.assertFalse(config["ENABLE_WXPUSHER"])
 
     def test_scheduled_task_is_enabled_by_default_for_backward_compatibility(self):
-        with (PROJECT_ROOT / "config.json").open("r", encoding="utf-8-sig") as file:
+        with self.CONFIG_TEMPLATE.open("r", encoding="utf-8-sig") as file:
             config = json.load(file)
         self.assertTrue(config["ENABLE_SCHEDULED_TASK"])
+
+    def test_local_output_is_separate_from_remote_aggregate(self):
+        with self.CONFIG_TEMPLATE.open("r", encoding="utf-8-sig") as file:
+            config = json.load(file)
+        self.assertEqual("ip.local.txt", config["OUTPUT_FILE"])
+        self.assertEqual("ip.txt", config["GITHUB_SYNC_REMOTE_PATH"])
+
+    def test_legacy_overlapping_output_is_migrated_at_runtime(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = os.path.join(temp_dir, "config.json")
+            output = local_state.resolve_local_output(
+                {
+                    "OUTPUT_FILE": "ip.txt",
+                    "GITHUB_SYNC_REMOTE_PATH": "ip.txt",
+                },
+                config_path,
+            )
+        self.assertEqual(os.path.join(temp_dir, "ip.local.txt"), output)
 
 
 class SetupScriptTests(unittest.TestCase):
@@ -60,6 +81,8 @@ class SetupScriptTests(unittest.TestCase):
         self.assertIn('"-X", "utf8"', script)
         self.assertNotIn("print('依赖导入验证通过')", script)
         self.assertIn("ENABLE_SCHEDULED_TASK", script)
+        self.assertIn("config.example.json", script)
+        self.assertIn("Copy-Item $configTemplatePath $configPath", script)
         self.assertIn("DeleteTask($TaskName, 0)", script)
         self.assertIn('手动运行：& `"$PythonExePath`" -X utf8', script)
         self.assertNotIn("pip show", script)
@@ -75,6 +98,8 @@ class SetupScriptTests(unittest.TestCase):
         self.assertIn("--timeout 120 --retries 10", script)
         self.assertIn("append_gitignore_entry", script)
         self.assertIn("ENABLE_SCHEDULED_TASK", script)
+        self.assertIn("config.example.json", script)
+        self.assertIn('run_as_target cp "$CONFIG_TEMPLATE_PATH" "$CONFIG_PATH"', script)
         self.assertIn("自动定时优选已关闭", script)
         self.assertNotIn("cat > .gitignore", script)
         self.assertNotIn("python3 -m pip install --upgrade pip", script)
@@ -93,9 +118,27 @@ class SetupScriptTests(unittest.TestCase):
             self.assertIn("--ff-only", script)
             self.assertNotIn("git reset --hard", script)
             self.assertNotIn("@github.com", script)
+            self.assertIn("config.example.json", script)
+            self.assertIn("ip.local.txt", script)
+            self.assertIn("ip.legacy.txt", script)
+            self.assertIn("diff", script)
+
+    def test_sensitive_and_local_runtime_files_are_ignored(self):
+        ignored = set((PROJECT_ROOT / ".gitignore").read_text().splitlines())
+        self.assertTrue(
+            {"config.json", "ip.local.txt", "valid_tokens.txt"}.issubset(ignored)
+        )
 
 
 class GitHubSyncTests(unittest.TestCase):
+    def test_manual_sync_uses_configured_local_output_by_default(self):
+        script = (PROJECT_ROOT / "github_sync.py").read_text(encoding="utf-8")
+        self.assertIn("resolve_local_output(config, config_path, print)", script)
+        for name in ("git_sync.ps1", "git_sync.sh"):
+            wrapper = (PROJECT_ROOT / name).read_text(encoding="utf-8-sig")
+            self.assertNotIn('--input "$SCRIPT_DIR/ip.txt"', wrapper)
+            self.assertNotIn('Join-Path $PSScriptRoot "ip.txt"', wrapper)
+
     def test_prepare_local_nodes_caps_and_tags_results(self):
         content = "\n".join(
             [f"104.16.0.{index}:443#US {index}.00 Mbps" for index in range(1, 8)]

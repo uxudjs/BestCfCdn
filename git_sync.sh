@@ -16,4 +16,4 @@ if [ -z "$PYTHON_BIN" ]; then
     exit 1
 fi
 
-"$PYTHON_BIN" "$SCRIPT_DIR/github_sync.py" --input "$SCRIPT_DIR/ip.txt"
+"$PYTHON_BIN" "$SCRIPT_DIR/github_sync.py"

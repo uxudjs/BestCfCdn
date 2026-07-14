@@ -158,6 +158,16 @@ Write-Host ""
 Set-Location $ScriptDir
 Write-Host "工作目录: $ScriptDir`n" -ForegroundColor Gray
 
+$configPath = Join-Path $ScriptDir "config.json"
+$configTemplatePath = Join-Path $ScriptDir "config.example.json"
+if (-not (Test-Path $configPath)) {
+    if (-not (Test-Path $configTemplatePath)) {
+        throw "未找到 config.example.json，无法创建本机配置。"
+    }
+    Copy-Item $configTemplatePath $configPath
+    Write-Host "✅ 已从 config.example.json 创建本机 config.json（Git 将忽略此文件）" -ForegroundColor Green
+}
+
 # ---------- 1. 检测 Python 并固定使用项目虚拟环境 ----------
 Write-Host "[1/5] 检查 Python 与项目虚拟环境..." -ForegroundColor Green
 $bootstrap = Get-BootstrapPython
@@ -261,13 +271,13 @@ if (-not (Test-Path $PythonScriptPath) -or -not (Test-Path (Join-Path $ScriptDir
     throw "未找到 scheduled_run.py 或 main.py。"
 }
 Add-GitIgnoreEntries -Path (Join-Path $ScriptDir ".gitignore") -Entries @(
-    ".venv/", "__pycache__/", "*.py[cod]", ".cfnb_schedule.lock", "cron.log"
+    ".venv/", "__pycache__/", "*.py[cod]", ".cfnb_schedule.lock", "cron.log",
+    "config.json", "ip.local.txt", "valid_tokens.txt", "ipinfo_cache.txt", "cfnb.log"
 )
 Write-Host "✅ 文件检查完成（未覆盖已有 .gitignore）" -ForegroundColor Gray
 
 # ---------- 按配置创建或清理计划任务 ----------
 $scheduleEnabled = $true
-$configPath = Join-Path $ScriptDir "config.json"
 try {
     $config = Get-Content -Path $configPath -Raw -Encoding UTF8 | ConvertFrom-Json
     if ($null -ne $config.ENABLE_SCHEDULED_TASK) {

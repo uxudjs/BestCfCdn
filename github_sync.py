@@ -13,6 +13,8 @@ from urllib.parse import quote
 
 import requests
 
+from local_state import resolve_local_output
+
 
 NODE_LINE_RE = re.compile(
     r"^(?P<endpoint>(?:\d{1,3}\.){3}\d{1,3}:\d+)#"
@@ -136,9 +138,11 @@ def update_remote(session, api_url, branch, field_id, content, sha, timeout):
     return session.put(api_url, json=payload, timeout=timeout)
 
 
-def sync(config_path, input_path):
+def sync(config_path, input_path=None):
     config = load_config(config_path)
     token, repository, branch, remote_path, field_id, top_n, retries = validate_config(config)
+    if input_path is None:
+        input_path = resolve_local_output(config, config_path, print)
     local_nodes = prepare_local_nodes(input_path, field_id, top_n)
     timeout = (10, 30)
     encoded_path = "/".join(quote(part, safe="") for part in remote_path.split("/"))
@@ -174,7 +178,10 @@ def main():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", default=os.path.join(script_dir, "config.json"))
-    parser.add_argument("--input", default=os.path.join(script_dir, "ip.txt"))
+    parser.add_argument(
+        "--input",
+        help="本机优选结果文件；省略时读取 config.json 的 OUTPUT_FILE",
+    )
     args = parser.parse_args()
     try:
         return sync(args.config, args.input)

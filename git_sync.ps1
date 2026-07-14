@@ -24,5 +24,5 @@ if (-not $pythonPath) {
     exit 1
 }
 
-& $pythonPath -X utf8 (Join-Path $PSScriptRoot "github_sync.py") --input (Join-Path $PSScriptRoot "ip.txt")
+& $pythonPath -X utf8 (Join-Path $PSScriptRoot "github_sync.py")
 exit $LASTEXITCODE

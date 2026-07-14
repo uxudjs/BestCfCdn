@@ -3,3 +3,8 @@ __pycache__/
 .venv/
 .cfnb_schedule.lock
 cron.log
+config.json
+ip.local.txt
+valid_tokens.txt
+ipinfo_cache.txt
+cfnb.log

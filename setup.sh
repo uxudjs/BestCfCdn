@@ -142,6 +142,17 @@ append_gitignore_entry() {
     fi
 }
 
+CONFIG_PATH="$SCRIPT_DIR/config.json"
+CONFIG_TEMPLATE_PATH="$SCRIPT_DIR/config.example.json"
+if [[ ! -f $CONFIG_PATH ]]; then
+    if [[ ! -f $CONFIG_TEMPLATE_PATH ]]; then
+        echo -e "${RED}❌ 未找到 config.example.json，无法创建本机配置。${NC}" >&2
+        exit 1
+    fi
+    run_as_target cp "$CONFIG_TEMPLATE_PATH" "$CONFIG_PATH"
+    echo -e "${GREEN}✅ 已从 config.example.json 创建本机 config.json（Git 将忽略此文件）${NC}"
+fi
+
 # ---------- 1. 系统依赖 ----------
 echo -e "${GREEN}[1/5] 检查系统依赖...${NC}"
 if ! command_exists python3; then
@@ -159,7 +170,7 @@ value = config.get("ENABLE_SCHEDULED_TASK", True)
 if not isinstance(value, bool):
     raise ValueError("ENABLE_SCHEDULED_TASK must be true or false")
 print("true" if value else "false")
-' "$SCRIPT_DIR/config.json"); then
+' "$CONFIG_PATH"); then
     echo -e "${RED}❌ 无法读取 config.json 中的 ENABLE_SCHEDULED_TASK。${NC}" >&2
     exit 1
 fi
@@ -230,7 +241,8 @@ if [[ ! -f $PYTHON_SCRIPT || ! -f main.py || ! -f requirements.txt ]]; then
     echo -e "${RED}❌ 缺少 scheduled_run.py、main.py 或 requirements.txt。${NC}" >&2
     exit 1
 fi
-for entry in ".venv/" "__pycache__/" "*.py[cod]" ".cfnb_schedule.lock" "cron.log"; do
+for entry in ".venv/" "__pycache__/" "*.py[cod]" ".cfnb_schedule.lock" "cron.log" \
+    "config.json" "ip.local.txt" "valid_tokens.txt" "ipinfo_cache.txt" "cfnb.log"; do
     append_gitignore_entry "$entry"
 done
 echo -e "✅ 已保留原有 .gitignore，并补齐运行时条目"

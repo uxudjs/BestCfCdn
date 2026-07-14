@@ -52,7 +52,7 @@
 | 🔄 **峰谷定时运行** | 中国 CF CDN 忙时每 15 分钟，非忙时每 30 分钟 |
 | 🚀 **一键部署** | `setup.ps1` / `setup.sh` 自动安装依赖并配置 |
 | 📤 **多终端安全同步** | 每台终端只替换自己的 5 行，冲突时自动拉取并重新合并 |
-| 🔒 **隐私保护** | GitHub Token 不进入远程 URL；文档明确禁止提交真实密钥 |
+| 🔒 **隐私保护** | 仓库只跟踪配置模板；含 Token 的本机 `config.json` 默认被 Git 忽略 |
 | 🖥️ **跨平台兼容** | 同时支持 Windows 和 Linux |
 | 🔄 **安全更新** | 内置 `update_fork.ps1` / `update_fork.sh`，快进更新并保留本机配置 |
 
@@ -63,7 +63,8 @@
 | 文件 | 说明 |
 | :--- | :--- |
 | `main.py` | 核心优选程序（抓取、测试、筛选、更新、推送） |
-| `config.json` | 所有运行参数的配置文件（含详细注释） |
+| `config.example.json` | 无敏感信息的配置模板（仓库跟踪） |
+| `config.json` | 本机配置（部署脚本自动创建，Git 忽略） |
 | `github_sync.py` | GitHub 多终端并发安全合并程序 |
 | `scheduled_run.py` | 按中国 CF CDN 峰谷时段运行并防止任务重叠 |
 | `git_sync.ps1` | Windows 手动同步入口 |
@@ -71,7 +72,8 @@
 | `setup.ps1` | Windows 一键部署脚本（安装依赖并配置计划任务） |
 | `setup.sh` | Linux 一键部署脚本（安装依赖并配置 cron） |
 | `requirements.txt` | Windows/Linux 共用的核心 Python 依赖清单 |
-| `ip.txt` | 最终优选节点列表（每次运行覆盖） |
+| `ip.local.txt` | 本机最终优选节点（每次运行覆盖，Git 忽略） |
+| `ip.txt` | GitHub 多终端远端汇总文件（程序不会作为本机输入覆盖） |
 | `update_fork.ps1` | Windows 安全更新脚本（备份并保留本机配置） |
 | `update_fork.sh` | Linux 安全更新脚本（备份并保留本机配置） |
 | `valid_tokens.txt` | ipinfo.io API Token 列表（每行一个，用于 IP 地区校准） |
@@ -104,7 +106,7 @@
 2. **配置各项令牌（见下一节）**  
    根据需求获取并填写 GitHub Token、Cloudflare API Token 和 WxPusher 凭证。
 
-> 💡 部署脚本会创建项目专用 `.venv`，优先使用清华 PyPI 镜像并在失败时回退官方源；安装后会实际导入验证依赖。脚本只补充 `.gitignore`，不会覆盖已有内容，并配置中国 CF CDN 忙时 15 分钟、非忙时 30 分钟的定时任务。
+> 💡 部署脚本会从 `config.example.json` 创建本机 `config.json`（已有文件绝不覆盖），创建项目专用 `.venv`，优先使用清华 PyPI 镜像并在失败时回退官方源；安装后会实际导入验证依赖。脚本只补充 `.gitignore`，不会覆盖已有内容，并配置中国 CF CDN 忙时 15 分钟、非忙时 30 分钟的定时任务。
 
 ---
 
@@ -183,7 +185,8 @@ nano config.json
    .\.venv\Scripts\python.exe -m pip install --timeout 120 --retries 10 -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple -r requirements.txt
    .\.venv\Scripts\python.exe -m pip install --timeout 120 --retries 10 -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple brotlicffi
    ```
-4. （可选）手动创建计划任务：
+4. 创建并编辑本机配置：`Copy-Item config.example.json config.json`。
+5. （可选）手动创建计划任务：
    - 按 `Win + R`，输入 `taskschd.msc` 打开任务计划程序。
    - 创建任务，名称 `Cloudflare IP 优选`，勾选“不管用户是否登录都要运行”和“使用最高权限运行”。
    - 触发器：新建 → 开始任务“按预定计划” → 设置“一次”，开始时间为下一个整15分钟时刻；高级设置中勾选“重复任务间隔”，选择“15分钟”，持续时间“无限期”。
@@ -204,15 +207,16 @@ nano config.json
    ./.venv/bin/python -m pip install --timeout 120 --retries 10 -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple -r requirements.txt
    ./.venv/bin/python -m pip install --timeout 120 --retries 10 -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple brotlicffi
    ```
-3. 赋予推送脚本执行权限（如果需要）：
+3. 创建并编辑本机配置：`cp config.example.json config.json`。
+4. 赋予推送脚本执行权限（如果需要）：
    ```bash
    chmod +x git_sync.sh
    ```
-4. （可选）添加 cron 任务：
+5. （可选）添加 cron 任务：
    ```bash
    (crontab -l 2>/dev/null; echo "*/15 * * * * cd $(pwd) && $(pwd)/.venv/bin/python $(pwd)/scheduled_run.py >> $(pwd)/cron.log 2>&1") | crontab -
    ```
-5. 验证：`crontab -l`
+6. 验证：`crontab -l`
 
 </details>
 
@@ -220,14 +224,17 @@ nano config.json
 
 ## 🔄 安全更新本地项目
 
-需要从 GitHub 拉取最新版，同时保留本机 `config.json` 和 `ip.txt` 时，可运行：
+需要从 GitHub 拉取最新版，同时保留本机 `config.json` 和 `ip.local.txt` 时，可运行：
 
 | 平台 | 命令 |
 | :--- | :--- |
 | Windows PowerShell | `.\update_fork.ps1` |
 | Linux | `chmod +x update_fork.sh && ./update_fork.sh` |
 
-脚本会备份本机配置，只允许 `origin/main` 快进更新，并把本机配置值合并到最新版。若存在其他未提交代码，或本地与远端已经分叉，脚本会停止并保留备份。
+脚本会备份本机配置和优选结果，只允许 `origin/main` 快进更新，并把本机配置值合并到最新版模板。升级旧版本时，旧的本机 `ip.txt` 会迁移为 `ip.local.txt`，远端汇总 `ip.txt` 恢复为仓库版本。若存在其他未提交代码，或本地与远端已经分叉，脚本会停止并保留备份。
+
+> [!WARNING]
+> 从仍跟踪 `config.json` 的旧版本首次升级时，请优先运行 `update_fork.ps1` / `update_fork.sh`，不要直接 `git pull`。更新脚本会先备份本机 Token，再完成配置私有化迁移。
 
 > [!IMPORTANT]
 > 更新脚本不会执行 `git reset --hard`，不会把 GitHub Token 写入远程 URL，也不会处理无关历史。GitHub 节点上报始终通过 `github_sync.py` 和 Contents API 完成。
@@ -342,7 +349,7 @@ nano config.json
 | `DNS_IP_RISK_MAX_LEVEL` | `string` | `高风险` | 允许的最高风险等级（可选：极度纯净、纯净、轻微风险、高风险、极度危险） |
 
 > **说明**：  
-> - 该过滤**仅作用于 Cloudflare DNS 批量更新环节**，不会影响 `ip.txt` 的内容和 GitHub 推送。  
+> - 该过滤**仅作用于 Cloudflare DNS 批量更新环节**，不会影响本机 `ip.local.txt` 的内容和 GitHub 推送。
 > - DNS 更新时会**同时应用以下条件**，只有全部满足的节点才会写入 DNS：  
 >   - 端口必须为 `443`  
 >   - 落地不能仅为 IPv6（即保留 IPv4 或双栈节点，需开启 `FILTER_IPV6_AVAILABILITY`）  
@@ -390,7 +397,7 @@ nano config.json
 | `FETCH_RETRY_DELAY` | `int` | `5` | 获取节点列表重试间隔（秒） |
 | `FETCH_TIMEOUT` | `int` | `10` | 获取节点列表读取超时（秒） |
 | `FETCH_CONNECT_TIMEOUT` | `int` | `5` | 获取节点列表连接超时（秒） |
-| `OUTPUT_FILE` | `string` | `"ip.txt"` | 最终结果保存文件名 |
+| `OUTPUT_FILE` | `string` | `"ip.local.txt"` | 本机最终结果文件；不得与远端汇总路径重名 |
 | `ENABLE_LOGGING` | `boolean` | `false` | 是否启用运行日志（每次运行覆盖 LOG_FILE） |
 | `LOG_FILE` | `string` | `"cfnb.log"` | 运行日志文件名（仅在启用日志时生效） |
 
@@ -503,19 +510,19 @@ nano config.json
 
 | 参数 | 类型 | 默认值 | 说明 |
 | :--- | :--- | :--- | :--- |
-| `AD_HEADER_ENABLED` | `boolean` | `false` | 是否在 `ip.txt` 头部插入自定义广告行 |
+| `AD_HEADER_ENABLED` | `boolean` | `false` | 是否在本机结果文件头部插入自定义广告行 |
 | `AD_HEADER_LINES` | `array` | `["0.0.0.0:443#格式 或纯文本1", "0.0.0.0:443#格式 或纯文本2"]` | 头部广告内容列表（可填任意格式） |
-| `AD_FOOTER_ENABLED` | `boolean` | `false` | 是否在 `ip.txt` 尾部插入自定义广告行 |
+| `AD_FOOTER_ENABLED` | `boolean` | `false` | 是否在本机结果文件尾部插入自定义广告行 |
 | `AD_FOOTER_LINES` | `array` | `["0.0.0.0:443#格式 或纯文本3", "0.0.0.0:443#格式 或纯文本4"]` | 尾部广告内容列表（可填任意格式） |
 | `AD_PERLINE_ENABLED` | `boolean` | `false` | 是否在每行节点末尾追加固定文本 |
 | `AD_PERLINE_TEXT` | `string` | `" 纯文本"` | 追加到每行节点末尾的文本 |
 
 > 💡 三个开关完全独立，头部/尾部可为多条，行尾为单条固定文本。  
-> 开启后只会改变 `ip.txt` 内容，不影响 Cloudflare DNS 更新（DNS 仍使用纯净节点列表）。
+> 开启后只会改变本机 `ip.local.txt` 内容，不影响 Cloudflare DNS 更新（DNS 仍使用纯净节点列表）。
 
-#### ip.txt 输出内容控制
+#### 本机结果输出内容控制
 
-控制最终 `ip.txt` 文件中每行节点后是否附带带宽测速、HTTP 延迟、HTTP 抖动和 TCP 延迟信息，方便直接查看或用于其他工具解析。
+控制最终 `ip.local.txt` 文件中每行节点后是否附带带宽测速、HTTP 延迟、HTTP 抖动和 TCP 延迟信息，方便直接查看或用于其他工具解析。
 
 | 参数 | 类型 | 默认值 | 说明 |
 | :--- | :--- | :--- | :--- |
@@ -540,13 +547,13 @@ nano config.json
 
 ## 📊 结果输出说明
 
-程序运行完成后，会在本地生成 `ip.txt` 文件，每行格式为 `IP地址:端口#国家代码`，例如：
+程序运行完成后，会在本地生成 `ip.local.txt` 文件，每行格式为 `IP地址:端口#国家代码`，例如：
 
 > `104.16.x.x:443#US`  
 > `162.159.x.x:443#HK`
 
 **重要说明**：  
-- `ip.txt` 中保存的是**基于综合加权排序的结果**，综合考虑了带宽、TCP 延迟、HTTP 延迟和抖动，以确保 GitHub 推送的节点列表完整且不丢失任何高速低延迟的 IP。  
+- `ip.local.txt` 中保存的是**本终端基于综合加权排序的结果**，综合考虑了带宽、TCP 延迟、HTTP 延迟和抖动。GitHub 同步只读取该本机文件的前 5 个有效节点。
 - Cloudflare DNS 批量更新环节会额外应用 `FILTER_IPV6_AVAILABILITY`（过滤落地 IPv6）、`BLOCKED_COUNTRIES`（屏蔽特定国家）、`DNS_IP_RISK_FILTER_ENABLED`（IP 风险等级过滤，可设定最高允许等级，过滤后无节点自动回退到无风险过滤列表）等过滤，仅将符合条件的 IP 写入 DNS 记录。
 
 ---
@@ -626,7 +633,7 @@ nano config.json
 
 ### 第二步：测试同步
 
-1. 确保项目目录下已有 `ip.txt` 文件（可先手动运行一次 `python main.py` 生成）。
+1. 确保项目目录下已有 `ip.local.txt` 文件（可先手动运行一次 `python main.py` 生成）。
 2. 手动执行推送脚本测试：
    - **Windows**：双击运行 `git_sync.ps1` 或在 PowerShell 中执行 `.\git_sync.ps1`
    - **Linux**：执行 `./git_sync.sh`
@@ -649,7 +656,7 @@ nano config.json
 | `401` / `403` | Token 无效或 Contents 权限不足 | 检查 Token 与仓库授权 |
 | `404` | 仓库、分支或路径配置错误 | 检查 `GITHUB_SYNC_REPOSITORY` 与 `GITHUB_SYNC_BRANCH` |
 | `409` / `422` | 多终端并发更新 | 程序会自动重新拉取合并；持续出现时增加冲突重试次数 |
-| 没有有效节点 | 本机 `ip.txt` 尚未生成 | 先运行 `main.py` |
+| 没有有效节点 | 本机 `ip.local.txt` 尚未生成 | 先运行 `main.py` |
 </details>
 
 ---
@@ -863,7 +870,7 @@ nano config.json
 <summary>🔒 隐私与其他</summary>
 
 18. **隐私保护**  
-   自动生成的 `.gitignore` 文件会忽略 `config.json`、`git_sync.ps1` 和 `git_sync.sh`，防止敏感信息被提交到公开仓库。
+   仓库的 `.gitignore` 会忽略 `config.json`、`valid_tokens.txt`、`ip.local.txt` 和运行缓存/日志；部署脚本也会补齐这些规则。`git_sync.ps1` 与 `git_sync.sh` 是不含密钥的程序入口，会正常纳入版本控制。
 
 </details>
 

@@ -2,8 +2,8 @@
 """
 Cloudflare IP 优选工具 (TCP筛选 + IP可用性二次筛选 + HTTP检测 + curl带宽测速 + WxPusher通知)
 依赖：requests, curl, aiohttp
-配置文件：同目录下的 config.json
-结果保存到 ip.txt，并自动推送到 GitHub，同时批量更新到 Cloudflare DNS
+配置文件：同目录下的 config.json（由 config.example.json 创建）
+结果保存到本机 ip.local.txt，并合并到 GitHub ip.txt，同时批量更新到 Cloudflare DNS
 支持 Windows / Linux
 优化：国家过滤前置，减少无效 TCP 测试；重试参数可配置；所有网络请求连接超时分离
 新增：IP 地区校准 + 缓存差异化更新
@@ -23,6 +23,7 @@ import shutil
 import json
 import asyncio
 import aiohttp
+from local_state import resolve_local_output
 import ipaddress
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -216,7 +217,7 @@ def load_config():
         "IP_CALIBRATION_MIN_INTERVAL": 0.1,
         "IP_CALIBRATION_TOKEN_FILE": "valid_tokens.txt",
         "IP_CALIBRATION_CACHE_FILE": "ipinfo_cache.txt",
-        "OUTPUT_FILE": "ip.txt",
+        "OUTPUT_FILE": "ip.local.txt",
         "ENABLE_LOGGING": False,
         "LOG_FILE": "cfnb.log",
         "FORCE_DIRECT": False,
@@ -283,11 +284,11 @@ def load_config():
     }
 
     try:
-        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+        with open(CONFIG_FILE, "r", encoding="utf-8-sig") as f:
             config = json.load(f)
     except FileNotFoundError:
         print(f"未找到配置文件 {CONFIG_FILE}，将使用内置默认配置运行。")
-        print(f"你可根据需要创建 config.json 文件（参考文档），程序会自动识别。")
+        print("请复制 config.example.json 为 config.json 后填写本机配置。")
         return defaults
     except json.JSONDecodeError as e:
         print(f"错误：配置文件格式不正确 - {e}")
@@ -341,7 +342,7 @@ IP_CALIBRATION_ENABLED = cfg["IP_CALIBRATION_ENABLED"]
 IP_CALIBRATION_MIN_INTERVAL = cfg["IP_CALIBRATION_MIN_INTERVAL"]
 IP_CALIBRATION_TOKEN_FILE = cfg["IP_CALIBRATION_TOKEN_FILE"]
 IP_CALIBRATION_CACHE_FILE = cfg["IP_CALIBRATION_CACHE_FILE"]
-OUTPUT_FILE = cfg["OUTPUT_FILE"]
+OUTPUT_FILE = resolve_local_output(cfg, CONFIG_FILE, print)
 ENABLE_LOGGING = cfg["ENABLE_LOGGING"]
 LOG_FILE = cfg["LOG_FILE"]
 FORCE_DIRECT = cfg["FORCE_DIRECT"]
@@ -1393,7 +1394,7 @@ def batch_update_cloudflare_dns(ip_list, ip_info=None, full_bw_results=None, tar
 
     if not dns_content_list:
         if ip_list:
-            print("未能从完整测速结果构建 DNS 列表，降级使用 ip.txt 中的 IP。")
+            print("未能从完整测速结果构建 DNS 列表，降级使用本机优选结果中的 IP。")
             if record_type == "A":
                 dns_content_list = ip_list
                 dns_node_list = ip_list
@@ -1556,7 +1557,7 @@ def sync_to_github():
     for attempt in range(1, GITHUB_SYNC_MAX_RETRIES + 1):
         print(f"\n正在同步到 GitHub (尝试 {attempt}/{GITHUB_SYNC_MAX_RETRIES})...")
         try:
-            cmd = interpreter + [script_path, "--input", os.path.join(script_dir, OUTPUT_FILE)]
+            cmd = interpreter + [script_path, "--input", OUTPUT_FILE]
             process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,

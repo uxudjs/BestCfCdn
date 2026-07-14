@@ -122,8 +122,8 @@
     "IP_CALIBRATION_CACHE_FILE": "ipinfo_cache.txt",
     "_comment_IP_CALIBRATION_CACHE_FILE": "地区校准的缓存文件名（位于脚本同目录）",
 
-    "OUTPUT_FILE": "ip.txt",
-    "_comment_OUTPUT_FILE": "最终结果保存的文件名",
+    "OUTPUT_FILE": "ip.local.txt",
+    "_comment_OUTPUT_FILE": "本机最终结果文件；不要与远端 GITHUB_SYNC_REMOTE_PATH 重名",
 
     "ENABLE_LOGGING": false,
     "_comment_ENABLE_LOGGING": "是否启用运行日志（保存为 LOG_FILE 指定的文件，每次运行覆盖）",
@@ -309,7 +309,7 @@
     "SCHEDULE_LOCK_STALE_MINUTES": 180,
     "_comment_SCHEDULE_LOCK_STALE_MINUTES": "防止任务重叠的锁文件失效时间",
 
-    "_comment_AD": "ip.txt 广告植入（开关独立）",
+    "_comment_AD": "本机结果文件广告植入（开关独立）",
     "AD_HEADER_ENABLED": false,
     "_comment_AD_HEADER_ENABLED": "头部广告开关（可多行）",
     "AD_HEADER_LINES": [
@@ -329,14 +329,14 @@
     "AD_PERLINE_TEXT": " 纯文本",
 
     "IP_TXT_SHOW_BANDWIDTH": false,
-    "_comment_IP_TXT_SHOW_BANDWIDTH": "ip.txt 中是否附带带宽测速信息（如 5.20 Mbps）",
+    "_comment_IP_TXT_SHOW_BANDWIDTH": "本机结果中是否附带带宽测速信息（如 5.20 Mbps）",
 
     "IP_TXT_SHOW_HTTP_LATENCY": false,
-    "_comment_IP_TXT_SHOW_HTTP_LATENCY": "ip.txt 中是否附带 HTTP 延迟信息（如 30.00 ms）",
+    "_comment_IP_TXT_SHOW_HTTP_LATENCY": "本机结果中是否附带 HTTP 延迟信息（如 30.00 ms）",
 
     "IP_TXT_SHOW_HTTP_JITTER": false,
-    "_comment_IP_TXT_SHOW_HTTP_JITTER": "ip.txt 中是否附带 HTTP 抖动信息（如 2.50 ms）",
+    "_comment_IP_TXT_SHOW_HTTP_JITTER": "本机结果中是否附带 HTTP 抖动信息（如 2.50 ms）",
 
     "IP_TXT_SHOW_LATENCY": false,
-    "_comment_IP_TXT_SHOW_LATENCY": "ip.txt 中是否附带 TCP 延迟信息（如 50.30 ms）"
+    "_comment_IP_TXT_SHOW_LATENCY": "本机结果中是否附带 TCP 延迟信息（如 50.30 ms）"
 }
