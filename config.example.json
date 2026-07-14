@@ -18,14 +18,11 @@
     "BANDWIDTH_CANDIDATES": 150,
     "_comment_BANDWIDTH_CANDIDATES": "进入带宽测速的候选节点数（从TCP通过者中选取前N个）",
 
-    "TCP_PROBES": 2,
-    "_comment_TCP_PROBES": "每个节点测试 TCP 连接的次数",
+    "TCP_PROBES": 4,
+    "_comment_TCP_PROBES": "每个节点测试 TCP 连接的次数；使用成功探测的中位数降低偶然波动",
 
-    "MIN_SUCCESS_RATE": 1.0,
+    "MIN_SUCCESS_RATE": 0.75,
     "_comment_MIN_SUCCESS_RATE": "TCP 最低成功率阈值（0.0~1.0），低于此值的节点直接淘汰",
-
-    "TCP_LATENCY_WEIGHT": 0.0,
-    "_comment_TCP_LATENCY_WEIGHT": "TCP延迟在综合排序中的权重（越大越排斥高TCP延迟）",
 
     "TIMEOUT": 3.0,
     "_comment_TIMEOUT": "单次 TCP 连接超时时间（秒）",
@@ -188,14 +185,8 @@
     "HTTP_TEST_METHOD": "HEAD",
     "_comment_HTTP_TEST_METHOD": "HTTP 请求方法（GET 或 HEAD）",
 
-    "HTTP_LATENCY_WEIGHT": 3.0,
-    "_comment_HTTP_LATENCY_WEIGHT": "HTTP延迟在综合排序中的权重（越大越排斥高HTTP延迟）",
-
-    "JITTER_WEIGHT": 3.0,
-    "_comment_JITTER_WEIGHT": "HTTP延迟抖动（标准差）在综合排序中的权重（越大越排斥延迟波动大的节点）",
-
-    "HTTP_JITTER_SAMPLES": 3,
-    "_comment_HTTP_JITTER_SAMPLES": "HTTP延迟抖动测试次数（至少3次，建议3~5次，越大越准但越慢）",
+    "HTTP_JITTER_SAMPLES": 5,
+    "_comment_HTTP_JITTER_SAMPLES": "HTTP 探测次数；延迟取中位数，抖动取 P90 与中位数之差，重试恢复耗时计入样本",
 
     "FILTER_IPV6_AVAILABILITY": true,
     "_comment_FILTER_IPV6_AVAILABILITY": "【仅DNS】是否过滤落地为 IPv6 的节点",
@@ -240,8 +231,31 @@
     "BANDWIDTH_CONNECT_TIMEOUT": 5,
     "_comment_BANDWIDTH_CONNECT_TIMEOUT": "curl 测速连接超时（秒）",
 
-    "SPEED_WEIGHT": 3.0,
-    "_comment_SPEED_WEIGHT": "带宽在综合排序中的权重（越大越看重带宽）",
+    "_comment_PROXY_SCORING": "代理体验综合评分 v2：带宽收益递减，HTTP 延迟优先，并考虑抖动与 TCP 延迟",
+    "PROXY_SCORE_BANDWIDTH_WEIGHT": 0.30,
+    "_comment_PROXY_SCORE_BANDWIDTH_WEIGHT": "带宽权重；带宽超过参考值后收益逐渐饱和",
+    "PROXY_SCORE_HTTP_LATENCY_WEIGHT": 0.40,
+    "_comment_PROXY_SCORE_HTTP_LATENCY_WEIGHT": "HTTP 响应体验权重",
+    "PROXY_SCORE_JITTER_WEIGHT": 0.20,
+    "_comment_PROXY_SCORE_JITTER_WEIGHT": "HTTP 尾部抖动权重",
+    "PROXY_SCORE_TCP_LATENCY_WEIGHT": 0.10,
+    "_comment_PROXY_SCORE_TCP_LATENCY_WEIGHT": "TCP 建连延迟权重",
+    "PROXY_SPEED_SCALE_MBPS": 40.0,
+    "_comment_PROXY_SPEED_SCALE_MBPS": "带宽收益递减尺度；40Mbps 后继续加速但加分逐步减小",
+    "PROXY_HTTP_LATENCY_REFERENCE_MS": 180.0,
+    "_comment_PROXY_HTTP_LATENCY_REFERENCE_MS": "HTTP 延迟效用参考值（毫秒）",
+    "PROXY_JITTER_REFERENCE_MS": 50.0,
+    "_comment_PROXY_JITTER_REFERENCE_MS": "HTTP 抖动效用参考值（毫秒）",
+    "PROXY_TCP_LATENCY_REFERENCE_MS": 180.0,
+    "_comment_PROXY_TCP_LATENCY_REFERENCE_MS": "TCP 延迟效用参考值（毫秒）",
+    "PROXY_MIN_BANDWIDTH_MBPS": 8.0,
+    "_comment_PROXY_MIN_BANDWIDTH_MBPS": "代理体验优先门槛；不足时仍会按综合分补齐节点",
+    "PROXY_MAX_HTTP_LATENCY_MS": 600.0,
+    "_comment_PROXY_MAX_HTTP_LATENCY_MS": "HTTP 延迟优先门槛（毫秒）；不足时安全补齐",
+    "PROXY_MAX_HTTP_JITTER_MS": 200.0,
+    "_comment_PROXY_MAX_HTTP_JITTER_MS": "HTTP 抖动优先门槛（毫秒）；不足时安全补齐",
+    "PROXY_MAX_TCP_LATENCY_MS": 600.0,
+    "_comment_PROXY_MAX_TCP_LATENCY_MS": "TCP 延迟优先门槛（毫秒）；不足时安全补齐",
 
     "IP_CALIBRATION_CONCURRENCY": 100,
     "_comment_IP_CALIBRATION_CONCURRENCY": "地区校准的并发查询数（根据 token 数量调整）",

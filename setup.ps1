@@ -128,6 +128,42 @@ function Add-GitIgnoreEntries {
     }
 }
 
+function Test-TaskNotFoundException {
+    param([System.Exception]$Exception)
+    # PowerShell 会用 MethodInvocationException 包装 COMException，逐层查找
+    # HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND) (0x80070002)。
+    $current = $Exception
+    while ($null -ne $current) {
+        if ($current.HResult -eq -2147024894) { return $true }
+        $current = $current.InnerException
+    }
+    return $false
+}
+
+function Remove-ProjectScheduledTask {
+    param([Parameter(Mandatory = $true)][string]$Name)
+
+    $taskService = New-Object -ComObject Schedule.Service
+    $taskService.Connect()
+    $rootFolder = $taskService.GetFolder("\")
+    try {
+        $existingTask = $rootFolder.GetTask("\$Name")
+    } catch {
+        if (Test-TaskNotFoundException -Exception $_.Exception) { return $false }
+        throw
+    }
+    if ($null -eq $existingTask) { return $false }
+
+    $rootFolder.DeleteTask($Name, 0)
+    try {
+        $null = $rootFolder.GetTask("\$Name")
+    } catch {
+        if (Test-TaskNotFoundException -Exception $_.Exception) { return $true }
+        throw
+    }
+    throw "计划任务 '$Name' 删除后仍然存在。"
+}
+
 if (-not (Test-Administrator)) {
     Write-Host "========================================" -ForegroundColor Cyan
     Write-Host " Cloudflare IP 优选工具 - 智能部署" -ForegroundColor Cyan
@@ -160,12 +196,24 @@ Write-Host "工作目录: $ScriptDir`n" -ForegroundColor Gray
 
 $configPath = Join-Path $ScriptDir "config.json"
 $configTemplatePath = Join-Path $ScriptDir "config.example.json"
-if (-not (Test-Path $configPath)) {
-    if (-not (Test-Path $configTemplatePath)) {
+if ((Test-Path -LiteralPath $configPath) -and -not (Test-Path -LiteralPath $configPath -PathType Leaf)) {
+    throw "config.json 已存在但不是普通文件。"
+}
+if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) {
+    if (-not (Test-Path -LiteralPath $configTemplatePath -PathType Leaf)) {
         throw "未找到 config.example.json，无法创建本机配置。"
     }
-    Copy-Item $configTemplatePath $configPath
+    try {
+        $null = Remove-ProjectScheduledTask -Name $TaskName
+    } catch {
+        throw "无法确认旧计划任务已停止，尚未创建 config.json：$_"
+    }
+    Add-GitIgnoreEntries -Path (Join-Path $ScriptDir ".gitignore") -Entries @("config.json")
+    Copy-Item -LiteralPath $configTemplatePath -Destination $configPath
     Write-Host "✅ 已从 config.example.json 创建本机 config.json（Git 将忽略此文件）" -ForegroundColor Green
+    Write-Host "首次部署到此暂停：请先编辑 config.json，再次运行 .\setup.ps1 以安装依赖并应用定时设置。" -ForegroundColor Yellow
+    Write-Host "本次不会安装依赖、注册计划任务或运行 main.py。" -ForegroundColor Yellow
+    exit 0
 }
 
 # ---------- 1. 检测 Python 并固定使用项目虚拟环境 ----------
@@ -267,8 +315,9 @@ Write-Host "✅ Python 依赖安装并验证完成" -ForegroundColor Green
 
 # ---------- 5. 保留已有 .gitignore，只补充运行时条目 ----------
 Write-Host "[5/5] 检查运行文件与 .gitignore..." -ForegroundColor Green
-if (-not (Test-Path $PythonScriptPath) -or -not (Test-Path (Join-Path $ScriptDir "main.py"))) {
-    throw "未找到 scheduled_run.py 或 main.py。"
+$requiredFilesMissing = (-not (Test-Path $PythonScriptPath)) -or (-not (Test-Path (Join-Path $ScriptDir "main.py"))) -or (-not (Test-Path (Join-Path $ScriptDir "proxy_scoring.py")))
+if ($requiredFilesMissing) {
+    throw "未找到 scheduled_run.py、main.py 或 proxy_scoring.py。"
 }
 Add-GitIgnoreEntries -Path (Join-Path $ScriptDir ".gitignore") -Entries @(
     ".venv/", "__pycache__/", "*.py[cod]", ".cfnb_schedule.lock", "cron.log",
@@ -290,14 +339,11 @@ try {
 if (-not $scheduleEnabled) {
     Write-Host "[5/5] 自动定时优选已关闭，正在清理本项目旧计划任务..." -ForegroundColor Yellow
     try {
-        $taskService = New-Object -ComObject Schedule.Service
-        $taskService.Connect()
-        $rootFolder = $taskService.GetFolder("\")
-        try { $rootFolder.DeleteTask($TaskName, 0) } catch { }
+        $null = Remove-ProjectScheduledTask -Name $TaskName
     } catch {
-        Write-Host "⚠️ 无法检查或删除旧计划任务：$_" -ForegroundColor Yellow
+        throw "无法关闭本项目计划任务：$_"
     }
-    Write-Host "✅ 未启用计划任务；需要时请手动运行 main.py" -ForegroundColor Green
+    Write-Host "✅ 已确认本项目计划任务不存在；需要时请手动运行 main.py" -ForegroundColor Green
 } else {
     $firstRunTime = Get-NextAlignedTime -IntervalMinutes $TaskIntervalMinutes
     $startBoundaryStr = $firstRunTime.ToString("yyyy-MM-ddTHH:mm:ss")
@@ -306,10 +352,10 @@ if (-not $scheduleEnabled) {
 
     $taskCreated = $false
     try {
+        $null = Remove-ProjectScheduledTask -Name $TaskName
         $taskService = New-Object -ComObject Schedule.Service
         $taskService.Connect()
         $rootFolder = $taskService.GetFolder("\")
-        try { $rootFolder.DeleteTask($TaskName, 0) } catch { }
 
         $taskDefinition = $taskService.NewTask(0)
         $taskDefinition.RegistrationInfo.Description = "Cloudflare CDN 中国忙时每15分钟、非忙时每30分钟优选"

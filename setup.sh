@@ -142,15 +142,68 @@ append_gitignore_entry() {
     fi
 }
 
+read_target_crontab() {
+    local output
+    if [[ ${EUID} -eq 0 && $TARGET_USER != root ]]; then
+        if output=$(crontab -u "$TARGET_USER" -l 2>&1); then
+            printf '%s' "$output"
+            return 0
+        fi
+    else
+        if output=$(crontab -l 2>&1); then
+            printf '%s' "$output"
+            return 0
+        fi
+    fi
+    if grep -qiE 'no[[:space:]]+crontab' <<<"$output"; then
+        return 0
+    fi
+    echo -e "${RED}❌ 无法读取 $TARGET_USER 的 crontab，已停止以避免覆盖其他任务：$output${NC}" >&2
+    return 1
+}
+
+filter_project_crontab() {
+    grep -v -F "$SCRIPT_DIR/main.py" \
+        | grep -v -F "$SCRIPT_DIR/$PYTHON_SCRIPT" \
+        | grep -v -F "# Cloudflare IP 优选工具" || true
+}
+
+write_target_crontab() {
+    if [[ ${EUID} -eq 0 && $TARGET_USER != root ]]; then
+        crontab -u "$TARGET_USER" -
+    else
+        crontab -
+    fi
+}
+
+remove_project_cron_entries() {
+    command_exists crontab || return 0
+    local existing cleaned
+    existing=$(read_target_crontab) || return 1
+    cleaned=$(printf '%s\n' "$existing" | filter_project_crontab)
+    if [[ $cleaned != "$existing" ]]; then
+        printf '%s\n' "$cleaned" | write_target_crontab
+    fi
+}
+
 CONFIG_PATH="$SCRIPT_DIR/config.json"
 CONFIG_TEMPLATE_PATH="$SCRIPT_DIR/config.example.json"
+if [[ -e $CONFIG_PATH && ! -f $CONFIG_PATH ]]; then
+    echo -e "${RED}❌ config.json 已存在但不是普通文件。${NC}" >&2
+    exit 1
+fi
 if [[ ! -f $CONFIG_PATH ]]; then
     if [[ ! -f $CONFIG_TEMPLATE_PATH ]]; then
         echo -e "${RED}❌ 未找到 config.example.json，无法创建本机配置。${NC}" >&2
         exit 1
     fi
+    remove_project_cron_entries || exit 1
+    append_gitignore_entry "config.json"
     run_as_target cp "$CONFIG_TEMPLATE_PATH" "$CONFIG_PATH"
     echo -e "${GREEN}✅ 已从 config.example.json 创建本机 config.json（Git 将忽略此文件）${NC}"
+    echo -e "${YELLOW}首次部署到此暂停：请先编辑 config.json，再次运行 ./setup.sh 以安装依赖并应用定时设置。${NC}"
+    echo -e "${YELLOW}本次不会安装依赖、注册定时任务或运行 main.py。${NC}"
+    exit 0
 fi
 
 # ---------- 1. 系统依赖 ----------
@@ -237,8 +290,8 @@ echo -e "${GREEN}✅ Python 依赖安装并验证完成${NC}"
 
 # ---------- 4. 文件检查与 .gitignore ----------
 echo -e "${GREEN}[4/5] 检查运行文件与 .gitignore...${NC}"
-if [[ ! -f $PYTHON_SCRIPT || ! -f main.py || ! -f requirements.txt ]]; then
-    echo -e "${RED}❌ 缺少 scheduled_run.py、main.py 或 requirements.txt。${NC}" >&2
+if [[ ! -f $PYTHON_SCRIPT || ! -f main.py || ! -f proxy_scoring.py || ! -f requirements.txt ]]; then
+    echo -e "${RED}❌ 缺少 scheduled_run.py、main.py、proxy_scoring.py 或 requirements.txt。${NC}" >&2
     exit 1
 fi
 for entry in ".venv/" "__pycache__/" "*.py[cod]" ".cfnb_schedule.lock" "cron.log" \
@@ -252,39 +305,26 @@ escaped_dir=${SCRIPT_DIR//\"/\\\"}
 CRON_COMMENT="# Cloudflare IP 优选工具（中国CF CDN忙时15分钟/非忙时30分钟）"
 CRON_CMD="*/15 * * * * cd \"$escaped_dir\" && \"$PYTHON_PATH\" \"$escaped_dir/$PYTHON_SCRIPT\" >> \"$escaped_dir/cron.log\" 2>&1"
 
+EXISTING_CRONTAB=""
+CLEANED_CRONTAB=""
 if command_exists crontab; then
-    if [[ ${EUID} -eq 0 && $TARGET_USER != root ]]; then
-        EXISTING_CRONTAB=$(crontab -u "$TARGET_USER" -l 2>/dev/null || true)
-    else
-        EXISTING_CRONTAB=$(crontab -l 2>/dev/null || true)
-    fi
-    CLEANED_CRONTAB=$(printf '%s\n' "$EXISTING_CRONTAB" \
-        | grep -v -F "$SCRIPT_DIR/main.py" \
-        | grep -v -F "$SCRIPT_DIR/$PYTHON_SCRIPT" \
-        | grep -v -F "# Cloudflare IP 优选工具" || true)
+    EXISTING_CRONTAB=$(read_target_crontab) || exit 1
+    CLEANED_CRONTAB=$(printf '%s\n' "$EXISTING_CRONTAB" | filter_project_crontab)
 fi
 
 if [[ $SCHEDULE_ENABLED == true ]]; then
     echo -e "${GREEN}[5/5] 配置定时任务（每15分钟检查峰谷策略）...${NC}"
-    if [[ ${EUID} -eq 0 && $TARGET_USER != root ]]; then
-        (printf '%s\n' "$CLEANED_CRONTAB"; echo "$CRON_COMMENT"; echo "$CRON_CMD") \
-            | crontab -u "$TARGET_USER" -
-    else
-        (printf '%s\n' "$CLEANED_CRONTAB"; echo "$CRON_COMMENT"; echo "$CRON_CMD") | crontab -
-    fi
+    (printf '%s\n' "$CLEANED_CRONTAB"; echo "$CRON_COMMENT"; echo "$CRON_CMD") \
+        | write_target_crontab
     echo -e "${GREEN}✅ 已为 $TARGET_USER 更新 cron 任务${NC}"
     echo -e "   Python: $PYTHON_PATH"
     echo -e "   日志: $SCRIPT_DIR/cron.log"
 else
     echo -e "${GREEN}[5/5] 自动定时优选已关闭，正在清理本项目旧 cron 任务...${NC}"
-    if command_exists crontab; then
-        if [[ ${EUID} -eq 0 && $TARGET_USER != root ]]; then
-            printf '%s\n' "$CLEANED_CRONTAB" | crontab -u "$TARGET_USER" -
-        else
-            printf '%s\n' "$CLEANED_CRONTAB" | crontab -
-        fi
+    if command_exists crontab && [[ $CLEANED_CRONTAB != "$EXISTING_CRONTAB" ]]; then
+        printf '%s\n' "$CLEANED_CRONTAB" | write_target_crontab
     fi
-    echo -e "${GREEN}✅ 未启用 cron；需要时请手动运行 main.py${NC}"
+    echo -e "${GREEN}✅ 已确认本项目 cron 任务不存在；需要时请手动运行 main.py${NC}"
 fi
 
 # 尝试启动 cron 服务；WSL、容器或非 systemd 环境失败时只提示。

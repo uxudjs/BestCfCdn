@@ -48,6 +48,16 @@ class ConfigDefaultsTests(unittest.TestCase):
         self.assertEqual("ip.local.txt", config["OUTPUT_FILE"])
         self.assertEqual("ip.txt", config["GITHUB_SYNC_REMOTE_PATH"])
 
+    def test_proxy_experience_v2_defaults_are_enabled(self):
+        with self.CONFIG_TEMPLATE.open("r", encoding="utf-8-sig") as file:
+            config = json.load(file)
+        self.assertEqual(4, config["TCP_PROBES"])
+        self.assertEqual(0.75, config["MIN_SUCCESS_RATE"])
+        self.assertEqual(5, config["HTTP_JITTER_SAMPLES"])
+        self.assertEqual(0.30, config["PROXY_SCORE_BANDWIDTH_WEIGHT"])
+        self.assertEqual(0.40, config["PROXY_SCORE_HTTP_LATENCY_WEIGHT"])
+        self.assertNotIn("SPEED_WEIGHT", config)
+
     def test_legacy_overlapping_output_is_migrated_at_runtime(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             config_path = os.path.join(temp_dir, "config.json")
@@ -82,8 +92,20 @@ class SetupScriptTests(unittest.TestCase):
         self.assertNotIn("print('依赖导入验证通过')", script)
         self.assertIn("ENABLE_SCHEDULED_TASK", script)
         self.assertIn("config.example.json", script)
-        self.assertIn("Copy-Item $configTemplatePath $configPath", script)
-        self.assertIn("DeleteTask($TaskName, 0)", script)
+        self.assertIn("Copy-Item -LiteralPath $configTemplatePath", script)
+        config_block = script.split("$configTemplatePath =", 1)[1].split(
+            "# ---------- 1.", 1
+        )[0]
+        self.assertIn("首次部署到此暂停", config_block)
+        self.assertIn("exit 0", config_block)
+        self.assertNotIn("Read-Host", config_block)
+        self.assertIn("Remove-ProjectScheduledTask", script)
+        self.assertIn("proxy_scoring.py", script)
+        self.assertIn("$current = $current.InnerException", script)
+        self.assertIn("-2147024894", script)
+        self.assertNotIn("-2147216625", script)
+        self.assertIn("删除后仍然存在", script)
+        self.assertIn("无法关闭本项目计划任务", script)
         self.assertIn('手动运行：& `"$PythonExePath`" -X utf8', script)
         self.assertNotIn("pip show", script)
 
@@ -100,6 +122,15 @@ class SetupScriptTests(unittest.TestCase):
         self.assertIn("ENABLE_SCHEDULED_TASK", script)
         self.assertIn("config.example.json", script)
         self.assertIn('run_as_target cp "$CONFIG_TEMPLATE_PATH" "$CONFIG_PATH"', script)
+        config_block = script.split('CONFIG_PATH="$SCRIPT_DIR/config.json"', 1)[
+            1
+        ].split("# ---------- 1.", 1)[0]
+        self.assertIn("首次部署到此暂停", config_block)
+        self.assertIn("exit 0", config_block)
+        self.assertNotIn("是否立即运行", config_block)
+        self.assertIn("read_target_crontab", script)
+        self.assertIn("proxy_scoring.py", script)
+        self.assertIn("已停止以避免覆盖其他任务", script)
         self.assertIn("自动定时优选已关闭", script)
         self.assertNotIn("cat > .gitignore", script)
         self.assertNotIn("python3 -m pip install --upgrade pip", script)
@@ -127,6 +158,26 @@ class SetupScriptTests(unittest.TestCase):
         ignored = set((PROJECT_ROOT / ".gitignore").read_text().splitlines())
         self.assertTrue(
             {"config.json", "ip.local.txt", "valid_tokens.txt"}.issubset(ignored)
+        )
+
+    def test_bandwidth_failure_does_not_restore_rejected_candidates(self):
+        script = (PROJECT_ROOT / "main.py").read_text(encoding="utf-8-sig")
+        self.assertIn(
+            "candidates_after_http or candidates_after_availability or candidates",
+            script,
+        )
+        fallback_block = script.split("if not bandwidth_available:", 1)[1].split(
+            "ranked_scores =", 1
+        )[0]
+        self.assertNotIn("results[:GLOBAL_TOP_N]", fallback_block)
+
+    def test_dns_ranked_nodes_do_not_require_availability_metadata(self):
+        script = (PROJECT_ROOT / "main.py").read_text(encoding="utf-8-sig")
+        self.assertIn("ip_info = ip_info or {}", script)
+        self.assertNotIn("if full_bw_results and ip_info:", script)
+        self.assertIn(
+            "per_country_limit=None if USE_GLOBAL_MODE else PER_COUNTRY_TOP_N",
+            script,
         )
 
 

@@ -35,11 +35,11 @@
 | 模块 | 说明 |
 | :--- | :--- |
 | 🌐 **多模式筛选** | 全局最优 TopN / 分国家最优 TopN |
-| ⚡ **TCP 连接测试** | 并发测延迟，可设成功率阈值 |
+| ⚡ **TCP 连接测试** | 多次并发探测并取中位数，可设成功率阈值 |
 | 🔍 **可用性二次检测** | API 验证代理能力 |
-| 🔍 **HTTP 延迟与抖动检测** | 多次探测 HTTP 响应，计算平均延迟与抖动（标准差），过滤非 Cloudflare 节点，提升代理兼容性 |
+| 🔍 **HTTP 延迟与抖动检测** | 多次探测 HTTP 响应，计算中位延迟与尾部抖动，过滤非 Cloudflare 节点 |
 | 📶 **真实带宽测速** | curl 下载测速，实测吞吐量 |
-| ⚖️ **综合加权排序** | 同时考虑带宽、TCP 延迟、HTTP 延迟与抖动，四个权重可自由调整，选出综合体验最优的节点 |
+| ⚖️ **代理体验评分 v2** | 带宽收益递减，HTTP 延迟优先，并综合抖动与 TCP 建连延迟 |
 | 🧩 **多源自适应聚合** | 支持多个数据源，自动识别并解析任意格式（标准代码、中文名、emoji国旗、JSON等），统一转换为标准格式 |
 | ⚙️ **前置过滤（按序执行）** | TCP 测试前按序：端口过滤 → 黑名单过滤 → 白名单过滤（均可开关） |
 | 🚫 **DNS 黑名单** | DNS 更新时剔除指定国家节点（**仅作用于 DNS 更新环节**） |
@@ -63,14 +63,15 @@
 | 文件 | 说明 |
 | :--- | :--- |
 | `main.py` | 核心优选程序（抓取、测试、筛选、更新、推送） |
+| `proxy_scoring.py` | 代理体验评分、质量门槛与最终名额选择 |
 | `config.example.json` | 无敏感信息的配置模板（仓库跟踪） |
 | `config.json` | 本机配置（部署脚本自动创建，Git 忽略） |
 | `github_sync.py` | GitHub 多终端并发安全合并程序 |
 | `scheduled_run.py` | 按中国 CF CDN 峰谷时段运行并防止任务重叠 |
 | `git_sync.ps1` | Windows 手动同步入口 |
 | `git_sync.sh` | Linux 手动同步入口 |
-| `setup.ps1` | Windows 一键部署脚本（安装依赖并配置计划任务） |
-| `setup.sh` | Linux 一键部署脚本（安装依赖并配置 cron） |
+| `setup.ps1` | Windows 分两阶段部署（先生成配置，复跑后安装依赖并配置计划任务） |
+| `setup.sh` | Linux 分两阶段部署（先生成配置，复跑后安装依赖并配置 cron） |
 | `requirements.txt` | Windows/Linux 共用的核心 Python 依赖清单 |
 | `ip.local.txt` | 本机最终优选节点（每次运行覆盖，Git 忽略） |
 | `ip.txt` | GitHub 多终端远端汇总文件（程序不会作为本机输入覆盖） |
@@ -103,10 +104,10 @@
      cd 仓库名
      ```
 
-2. **配置各项令牌（见下一节）**  
-   根据需求获取并填写 GitHub Token、Cloudflare API Token 和 WxPusher 凭证。
+2. **准备各项令牌（见下一节）**
+   根据需求获取 GitHub Token、Cloudflare API Token 和 WxPusher 凭证；首次运行 setup 生成 `config.json` 后再填入。
 
-> 💡 部署脚本会从 `config.example.json` 创建本机 `config.json`（已有文件绝不覆盖），创建项目专用 `.venv`，优先使用清华 PyPI 镜像并在失败时回退官方源；安装后会实际导入验证依赖。脚本只补充 `.gitignore`，不会覆盖已有内容，并配置中国 CF CDN 忙时 15 分钟、非忙时 30 分钟的定时任务。
+> 💡 首次运行部署脚本时只会从 `config.example.json` 创建本机 `config.json`（已有文件绝不覆盖）、确认本项目没有残留定时任务，然后立即退出。请先编辑配置，再运行一次 setup；第二次才会创建项目专用 `.venv`、安装依赖并应用定时设置，最后询问是否立即测试运行。依赖安装优先使用清华 PyPI 镜像，失败时回退官方源。
 
 ---
 
@@ -147,7 +148,10 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 # 4. 编辑配置，填入 GitHub 令牌、仓库和终端名称
 notepad config.json
 
-# 5. 测试运行（使用部署脚本创建的项目虚拟环境）
+# 5. 再次运行部署脚本，安装依赖并应用配置
+.\setup.ps1
+
+# 6. 可选：手动测试（若上一步未选择立即运行）
 .\.venv\Scripts\python.exe main.py
 ```
 
@@ -168,7 +172,10 @@ chmod +x setup.sh
 # 4. 编辑配置，填入 GitHub 令牌、仓库和终端名称
 nano config.json
 
-# 5. 测试运行（使用项目虚拟环境）
+# 5. 再次运行部署脚本，安装依赖并应用配置
+./setup.sh
+
+# 6. 可选：手动测试（若上一步未选择立即运行）
 ./.venv/bin/python main.py
 ```
 
@@ -300,24 +307,35 @@ nano config.json
 
 | 参数 | 类型 | 默认值 | 说明 |
 | :--- | :--- | :--- | :--- |
-| `TCP_PROBES` | `int` | `2` | 每个节点 TCP 测试次数，降低跨境链路偶发抖动造成的误判 |
-| `MIN_SUCCESS_RATE` | `float` | `1.0` | 最低成功率阈值（0.0~1.0） |
-| `TCP_LATENCY_WEIGHT` | `float` | `0.0` | TCP延迟在综合排序中的权重（越大越排斥高TCP延迟） |
+| `TCP_PROBES` | `int` | `4` | 每个节点 TCP 测试次数；成功探测取中位数，避免一次幸运低延迟误导 |
+| `MIN_SUCCESS_RATE` | `float` | `0.75` | 最低成功率阈值（0.0~1.0） |
 | `TIMEOUT` | `float` | `3.0` | 单次 TCP 连接超时（秒） |
 | `SOCKET_DEFAULT_TIMEOUT` | `int` | `5` | 全局 Socket 默认超时（秒），防止永久阻塞 |
 | `PROGRESS_PRINT_INTERVAL` | `float` | `1` | 进度打印刷新间隔（秒），避免频繁 I/O |
 
-### 综合排序权重
+### 代理体验综合评分 v2
 
-最终节点的排名由综合得分决定，公式为：  
-**得分 = (SPEED_WEIGHT × 带宽) / (1 + TCP_LATENCY_WEIGHT × TCP延迟 + HTTP_LATENCY_WEIGHT × HTTP延迟 + JITTER_WEIGHT × HTTP抖动)**
+带宽先通过 `1 - exp(-Mbps / 40)` 转换为收益递减的效用值；延迟和抖动通过 `1 / (1 + (测量值 / 参考值)²)` 转换。默认综合分为：带宽 30% + HTTP 延迟 40% + HTTP 抖动 20% + TCP 延迟 10%。某项检测被关闭或整体不可用时，其权重会自动分配给仍有数据的指标。
 
 | 参数 | 类型 | 默认值 | 说明 |
 | :--- | :--- | :--- | :--- |
-| `HTTP_LATENCY_WEIGHT` | `float` | `3.0` | HTTP延迟在综合排序中的权重（越大越排斥高HTTP延迟） |
-| `JITTER_WEIGHT` | `float` | `3.0` | HTTP延迟抖动（标准差）在综合排序中的权重（越大越排斥延迟波动大的节点） |
-| `HTTP_JITTER_SAMPLES` | `int` | `3` | HTTP延迟抖动测试次数（至少3次，建议3~5次，越大越准但越慢） |
-| `SPEED_WEIGHT` | `float` | `3.0` | 带宽在综合排序中的权重（越大越看重带宽） |
+| `HTTP_JITTER_SAMPLES` | `int` | `5` | HTTP 探测次数；延迟取中位数，抖动取 P90−中位数；失败后的重试恢复耗时也计入样本 |
+| `PROXY_SCORE_BANDWIDTH_WEIGHT` | `float` | `0.30` | 带宽效用权重 |
+| `PROXY_SCORE_HTTP_LATENCY_WEIGHT` | `float` | `0.40` | HTTP 延迟权重 |
+| `PROXY_SCORE_JITTER_WEIGHT` | `float` | `0.20` | HTTP 抖动权重 |
+| `PROXY_SCORE_TCP_LATENCY_WEIGHT` | `float` | `0.10` | TCP 延迟权重 |
+| `PROXY_SPEED_SCALE_MBPS` | `float` | `40` | 带宽收益递减尺度 |
+| `PROXY_HTTP_LATENCY_REFERENCE_MS` | `float` | `180` | HTTP 延迟效用参考值 |
+| `PROXY_JITTER_REFERENCE_MS` | `float` | `50` | HTTP 抖动效用参考值 |
+| `PROXY_TCP_LATENCY_REFERENCE_MS` | `float` | `180` | TCP 延迟效用参考值 |
+| `PROXY_MIN_BANDWIDTH_MBPS` | `float` | `8` | 带宽优先门槛 |
+| `PROXY_MAX_HTTP_LATENCY_MS` | `float` | `600` | HTTP 延迟优先门槛 |
+| `PROXY_MAX_HTTP_JITTER_MS` | `float` | `200` | HTTP 抖动优先门槛 |
+| `PROXY_MAX_TCP_LATENCY_MS` | `float` | `600` | TCP 延迟优先门槛 |
+
+算法按三层执行：先淘汰不可用节点，再让满足体验门槛的节点按综合分排序，最后只在名额不足时从其余已通过可用性检测的节点补位。单个节点带宽测速失败不会重新引入先前被 HTTP/可用性检测淘汰的节点，也不会直接导致可用节点不足 5 个；它会以 0 Mbps、低优先级参与补位，并在控制台标明放宽原因。
+
+全局与分国家模式会同时作用于本机/GitHub 结果和 Cloudflare DNS：分国家模式下，DNS 完成 IPv6、黑名单与风险过滤后，仍严格遵守 `PER_COUNTRY_TOP_N`，再从其他国家的候选中补足名额。
 
 ### 前置过滤参数（TCP 测试前生效）
 
@@ -846,7 +864,7 @@ nano config.json
 若所有候选节点均返回非 `400` / `cloudflare` 或连接失败，程序将降级使用过滤前列表（即可用性检测通过的结果），并发送微信通知（如已启用）。
 
 14. **带宽测速全部失败**  
-若 curl 测速多次重试仍无有效带宽数据，程序将回退到 TCP 延迟排序结果作为最终优选节点，并发送微信通知。
+若 curl 测速多次重试仍无有效带宽数据，程序只会在已经通过后续可用性/HTTP 检测的候选中，按现有延迟指标重新归一评分；不会重新选回已淘汰节点。
 
 </details>
 
