@@ -1,6 +1,11 @@
 {
     "_comment": "Cloudflare IP 优选工具配置文件 - 请根据需求修改下方参数",
 
+    "GITHUB_SYNC_FIELD_ID": "请填写终端名称",
+    "_comment_GITHUB_SYNC_FIELD_ID": "本终端唯一标识，例如济南联通或郑州教育网；不要包含空格、|或#",
+
+    "_comment_MAINLAND_PROFILE": "默认参数已按中国大陆跨境链路优化：北京时间、较宽松超时、分级重试和适中并发",
+
     "USE_GLOBAL_MODE": true,
     "_comment_USE_GLOBAL_MODE": "true=全局最优5个；false=每个国家最优1个",
 
@@ -13,7 +18,7 @@
     "BANDWIDTH_CANDIDATES": 150,
     "_comment_BANDWIDTH_CANDIDATES": "进入带宽测速的候选节点数（从TCP通过者中选取前N个）",
 
-    "TCP_PROBES": 1,
+    "TCP_PROBES": 2,
     "_comment_TCP_PROBES": "每个节点测试 TCP 连接的次数",
 
     "MIN_SUCCESS_RATE": 1.0,
@@ -22,10 +27,10 @@
     "TCP_LATENCY_WEIGHT": 0.0,
     "_comment_TCP_LATENCY_WEIGHT": "TCP延迟在综合排序中的权重（越大越排斥高TCP延迟）",
 
-    "TIMEOUT": 2.0,
+    "TIMEOUT": 3.0,
     "_comment_TIMEOUT": "单次 TCP 连接超时时间（秒）",
 
-    "SOCKET_DEFAULT_TIMEOUT": 3,
+    "SOCKET_DEFAULT_TIMEOUT": 5,
     "_comment_SOCKET_DEFAULT_TIMEOUT": "全局 Socket 默认超时（秒），防止永久阻塞",
 
     "PROGRESS_PRINT_INTERVAL": 1,
@@ -49,7 +54,7 @@
     "PRE_FILTER_PORTS": [443],
     "_comment_PRE_FILTER_PORTS": "TCP 测试前允许的端口列表（可多端口）",
 
-    "ENABLE_WXPUSHER": true,
+    "ENABLE_WXPUSHER": false,
     "_comment_ENABLE_WXPUSHER": "是否启用 WxPusher 微信通知",
 
     "WXPUSHER_APP_TOKEN": "your_app_token_here",
@@ -61,10 +66,10 @@
     "WXPUSHER_API_URL": "https://wxpusher.zjiecode.com/api/send/message",
     "_comment_WXPUSHER_API_URL": "WxPusher 消息发送 API 地址（一般无需修改）",
 
-    "NOTIFY_TIMEOUT": 3,
+    "NOTIFY_TIMEOUT": 8,
     "_comment_NOTIFY_TIMEOUT": "微信通知 API 读取超时（秒）",
 
-    "NOTIFY_CONNECT_TIMEOUT": 3,
+    "NOTIFY_CONNECT_TIMEOUT": 5,
     "_comment_NOTIFY_CONNECT_TIMEOUT": "微信通知 API 连接超时（秒）",
 
     "_comment_cf_dns": "Cloudflare DNS 批量更新配置",
@@ -74,9 +79,9 @@
     "CF_DNS_RECORD_NAME": "your_CF_DNS_RECORD_NAME",
     "CF_TTL": 60,
     "CF_PROXIED": false,
-    "CF_DNS_CONNECT_TIMEOUT": 3,
+    "CF_DNS_CONNECT_TIMEOUT": 5,
     "_comment_CF_DNS_CONNECT_TIMEOUT": "Cloudflare API 连接超时（秒）",
-    "CF_DNS_READ_TIMEOUT": 3,
+    "CF_DNS_READ_TIMEOUT": 10,
     "_comment_CF_DNS_READ_TIMEOUT": "Cloudflare API 读取超时（秒）",
     "DNS_RECORD_TYPE": "TXT",
     "_comment_DNS_RECORD_TYPE": "DNS 记录类型（A 或 TXT）",
@@ -93,16 +98,16 @@
     ],
     "_comment_ADDITIONAL_SOURCES": "所有数据源列表，每个对象包含 url 和 enabled。无需指定格式，程序完全自适应解析（支持标准代码、中文名、emoji国旗、JSON等）",
 
-    "FETCH_MAX_RETRIES": 3,
+    "FETCH_MAX_RETRIES": 5,
     "_comment_FETCH_MAX_RETRIES": "获取节点列表失败时的最大重试次数",
 
-    "FETCH_RETRY_DELAY": 3,
+    "FETCH_RETRY_DELAY": 5,
     "_comment_FETCH_RETRY_DELAY": "获取节点列表重试间隔（秒）",
 
-    "FETCH_TIMEOUT": 3,
+    "FETCH_TIMEOUT": 10,
     "_comment_FETCH_TIMEOUT": "获取节点列表读取超时（秒）",
 
-    "FETCH_CONNECT_TIMEOUT": 3,
+    "FETCH_CONNECT_TIMEOUT": 5,
     "_comment_FETCH_CONNECT_TIMEOUT": "获取节点列表连接超时（秒）",
 
     "IP_CALIBRATION_ENABLED": false,
@@ -135,13 +140,13 @@
     "AVAILABILITY_CHECK_API": "https://api.090227.xyz/check",
     "_comment_AVAILABILITY_CHECK_API": "IP 可用性检测 API 地址",
 
-    "AVAILABILITY_TIMEOUT": 3,
+    "AVAILABILITY_TIMEOUT": 8,
     "_comment_AVAILABILITY_TIMEOUT": "可用性 API 读取超时（秒）",
 
-    "AVAILABILITY_CONNECT_TIMEOUT": 3,
+    "AVAILABILITY_CONNECT_TIMEOUT": 5,
     "_comment_AVAILABILITY_CONNECT_TIMEOUT": "可用性 API 连接超时（秒）",
 
-    "AVAILABILITY_RETRY_MAX": 2,
+    "AVAILABILITY_RETRY_MAX": 3,
     "_comment_AVAILABILITY_RETRY_MAX": "可用性检测整体失败（通过率为0）时的最大重试轮数",
 
     "AVAILABILITY_RETRY_DELAY": 3,
@@ -159,13 +164,13 @@
     "HTTP_TEST_ENABLED": true,
     "_comment_HTTP_TEST_ENABLED": "是否在可用性测试后开启 HTTP检测（过滤 HTTP 响应头非Cloudflare 的节点）",
 
-    "HTTP_TEST_TIMEOUT": 3,
+    "HTTP_TEST_TIMEOUT": 8,
     "_comment_HTTP_TEST_TIMEOUT": "单次 HTTP 请求读取超时（秒）",
 
-    "HTTP_TEST_CONNECT_TIMEOUT": 3,
+    "HTTP_TEST_CONNECT_TIMEOUT": 5,
     "_comment_HTTP_TEST_CONNECT_TIMEOUT": "HTTP 检测的连接超时（秒）",
 
-    "HTTP_TEST_MAX_ROUNDS": 2,
+    "HTTP_TEST_MAX_ROUNDS": 3,
     "_comment_HTTP_TEST_MAX_ROUNDS": "HTTP 检测整体失败（通过率为0）时的最大重试轮数",
 
     "HTTP_TEST_ROUND_DELAY": 3,
@@ -211,13 +216,13 @@
     "DNS_IP_RISK_MAX_LEVEL": "高风险",
     "_comment_DNS_IP_RISK_MAX_LEVEL": "【仅DNS】允许的最高风险等级（极度纯净 / 纯净 / 轻微风险 / 高风险 / 极度危险）",
 
-    "DNS_UPDATE_TARGET_COUNT": 15,
-    "_comment_DNS_UPDATE_TARGET_COUNT": "DNS 更新时写入的最大 IP 数量，独立于筛选模式",
+    "DNS_UPDATE_TARGET_COUNT": 5,
+    "_comment_DNS_UPDATE_TARGET_COUNT": "DNS 更新时最多写入5个最优 IP，与终端上报数量保持一致",
 
-    "BANDWIDTH_SIZE_MB": 1.0,
+    "BANDWIDTH_SIZE_MB": 2.0,
     "_comment_BANDWIDTH_SIZE_MB": "带宽测速下载文件大小（MB）",
 
-    "BANDWIDTH_TIMEOUT": 3,
+    "BANDWIDTH_TIMEOUT": 8,
     "_comment_BANDWIDTH_TIMEOUT": "单个节点带宽测速超时（秒）",
 
     "BANDWIDTH_RETRY_MAX": 2,
@@ -232,36 +237,36 @@
     "BANDWIDTH_PROCESS_BUFFER": 2,
     "_comment_BANDWIDTH_PROCESS_BUFFER": "带宽测速 curl 进程额外缓冲时间（秒）",
 
-    "BANDWIDTH_CONNECT_TIMEOUT": 3,
+    "BANDWIDTH_CONNECT_TIMEOUT": 5,
     "_comment_BANDWIDTH_CONNECT_TIMEOUT": "curl 测速连接超时（秒）",
 
     "SPEED_WEIGHT": 3.0,
     "_comment_SPEED_WEIGHT": "带宽在综合排序中的权重（越大越看重带宽）",
 
-    "IP_CALIBRATION_CONCURRENCY": 300,
+    "IP_CALIBRATION_CONCURRENCY": 100,
     "_comment_IP_CALIBRATION_CONCURRENCY": "地区校准的并发查询数（根据 token 数量调整）",
 
-    "MAX_WORKERS": 300,
+    "MAX_WORKERS": 150,
     "_comment_MAX_WORKERS": "TCP 并发测试的最大线程数",
 
-    "AVAILABILITY_WORKERS": 32,
+    "AVAILABILITY_WORKERS": 16,
     "_comment_AVAILABILITY_WORKERS": "可用性检测的并发线程数",
 
-    "FALLBACK_WORKERS": 32,
+    "FALLBACK_WORKERS": 16,
     "_comment_FALLBACK_WORKERS": "备用国家查询的并发线程数（当标签无法识别时自动调用可用性 API 查询）",
 
-    "HTTP_TEST_WORKERS": 32,
+    "HTTP_TEST_WORKERS": 16,
     "_comment_HTTP_TEST_WORKERS": "HTTP 检测的并发线程数",
 
-    "BANDWIDTH_WORKERS": 3,
+    "BANDWIDTH_WORKERS": 2,
     "_comment_BANDWIDTH_WORKERS": "带宽测速的并发线程数",
 
     "_comment_retry": "重试策略配置",
-    "DNS_UPDATE_MAX_RETRIES": 3,
-    "DNS_UPDATE_RETRY_DELAY": 3,
-    "GITHUB_SYNC_MAX_RETRIES": 3,
-    "GITHUB_SYNC_RETRY_DELAY": 3,
-    "GIT_SYNC_PROCESS_TIMEOUT": 180,
+    "DNS_UPDATE_MAX_RETRIES": 5,
+    "DNS_UPDATE_RETRY_DELAY": 5,
+    "GITHUB_SYNC_MAX_RETRIES": 5,
+    "GITHUB_SYNC_RETRY_DELAY": 5,
+    "GIT_SYNC_PROCESS_TIMEOUT": 300,
     "_comment_GIT_SYNC_PROCESS_TIMEOUT": "Git 同步子进程最大运行时间（秒）",
 
     "GITHUB_SYNC_TOKEN": "your_github_personal_access_token_here",
@@ -276,13 +281,10 @@
     "GITHUB_SYNC_REMOTE_PATH": "ip.txt",
     "_comment_GITHUB_SYNC_REMOTE_PATH": "多终端汇总文件在仓库中的路径",
 
-    "GITHUB_SYNC_FIELD_ID": "请填写终端名称",
-    "_comment_GITHUB_SYNC_FIELD_ID": "本终端唯一标识，例如济南联通或郑州教育网；不要包含空格、|或#",
-
     "GITHUB_SYNC_TOP_N": 5,
     "_comment_GITHUB_SYNC_TOP_N": "本终端每次最多上报的最优节点数",
 
-    "GITHUB_SYNC_CONFLICT_RETRIES": 5,
+    "GITHUB_SYNC_CONFLICT_RETRIES": 8,
     "_comment_GITHUB_SYNC_CONFLICT_RETRIES": "多个终端同时更新时，因远端版本变化而重新拉取合并的最大次数",
 
     "_comment_schedule": "Cloudflare CDN 中国流量峰谷调度（北京时间）",
