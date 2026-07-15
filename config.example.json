@@ -48,7 +48,7 @@
     "PRE_FILTER_PORT_ENABLED": true,
     "_comment_PRE_FILTER_PORT_ENABLED": "是否在 TCP 测试前过滤端口（仅保留下方指定的端口）",
 
-    "PRE_FILTER_PORTS": [443],
+    "PRE_FILTER_PORTS": [443, 2053, 2083, 2087, 2096, 8443],
     "_comment_PRE_FILTER_PORTS": "TCP 测试前允许的端口列表（可多端口）",
 
     "ENABLE_WXPUSHER": false,
