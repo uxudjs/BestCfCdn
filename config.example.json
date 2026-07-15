@@ -2,7 +2,7 @@
     "_comment": "Cloudflare IP 优选工具配置文件 - 请根据需求修改下方参数",
 
     "GITHUB_SYNC_FIELD_ID": "请填写终端名称",
-    "_comment_GITHUB_SYNC_FIELD_ID": "本终端唯一标识，例如济南联通或郑州教育网；不要包含空格、|或#",
+    "_comment_GITHUB_SYNC_FIELD_ID": "本终端唯一标识，请使用不含个人信息的别名，例如 device-a 或 site-b；不要包含空白、|或#",
 
     "_comment_MAINLAND_PROFILE": "默认参数已按中国大陆跨境链路优化：北京时间、较宽松超时、分级重试和适中并发",
 
