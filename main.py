@@ -1599,8 +1599,13 @@ def sync_to_github():
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
     script_name = "github_sync.py"
-    interpreter = [sys.executable]
+    interpreter = [sys.executable, "-X", "utf8"]
     creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+    child_env = os.environ.copy()
+    # 手动运行 main.py 时，setup.ps1 中设置的环境变量未必仍然存在。
+    # 明确固定子进程输入输出为 UTF-8，并覆盖用户环境中的本地代码页设置。
+    child_env["PYTHONUTF8"] = "1"
+    child_env["PYTHONIOENCODING"] = "utf-8"
 
     script_path = os.path.join(script_dir, script_name)
     if not os.path.exists(script_path):
@@ -1616,6 +1621,9 @@ def sync_to_github():
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
+                env=child_env,
                 creationflags=creationflags
             )
 
@@ -1626,10 +1634,12 @@ def sync_to_github():
                     return
                 else:
                     print(f"推送失败 (退出码 {process.returncode})")
-                    if stderr:
-                        print(f"错误信息: {stderr.strip()}")
+                    detail = (stderr or stdout or "").strip()
+                    if detail:
+                        print(f"错误信息: {detail}")
             except subprocess.TimeoutExpired:
                 process.kill()
+                process.communicate()
                 print(f"推送超时（超过 {GIT_SYNC_PROCESS_TIMEOUT} 秒）")
         except Exception as e:
             print(f"推送过程异常: {e}")

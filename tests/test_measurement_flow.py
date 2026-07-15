@@ -5,6 +5,35 @@ import main
 
 
 class MeasurementFlowTests(unittest.TestCase):
+    def test_github_sync_child_process_forces_utf8_and_safe_decoding(self):
+        process = mock.MagicMock()
+        process.returncode = 1
+        process.communicate.return_value = ("", "模拟错误")
+
+        settings = {
+            "GITHUB_SYNC_MAX_RETRIES": 1,
+            "GIT_SYNC_PROCESS_TIMEOUT": 10,
+            "OUTPUT_FILE": "ip.local.txt",
+        }
+        with mock.patch.dict(
+            main.os.environ,
+            {"PYTHONUTF8": "0", "PYTHONIOENCODING": "cp950"},
+        ):
+            with mock.patch.multiple(main, **settings), mock.patch(
+                "main.subprocess.Popen", return_value=process
+            ) as popen, mock.patch("main.send_wxpusher_notification"):
+                main.sync_to_github()
+
+        command = popen.call_args.args[0]
+        options = popen.call_args.kwargs
+        self.assertEqual(["-X", "utf8"], command[1:3])
+        self.assertEqual("utf-8", options["encoding"])
+        self.assertEqual("replace", options["errors"])
+        self.assertTrue(options["text"])
+        self.assertEqual("1", options["env"]["PYTHONUTF8"])
+        self.assertEqual("utf-8", options["env"]["PYTHONIOENCODING"])
+        process.communicate.assert_called_once_with(timeout=10)
+
     def test_tcp_latency_uses_median_successful_probe(self):
         socket_instance = mock.MagicMock()
         socket_context = mock.MagicMock()
