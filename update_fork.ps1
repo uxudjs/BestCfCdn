@@ -81,6 +81,38 @@ function Invoke-UpdatePython {
     return ($exitCode -eq 0)
 }
 
+function Invoke-UpdatePythonCode {
+    param(
+        [Parameter(Mandatory = $true)][string]$Code,
+        [string[]]$Arguments = @(),
+        [switch]$AllowFailure
+    )
+
+    # Windows PowerShell 5.1 会重新拼接原生命令行；把多行代码直接交给
+    # python -c 时，代码中的双引号可能被剥离并导致 SyntaxError。
+    # 写入 UTF-8 临时脚本后再执行，可完整保留 Python 源码和参数边界。
+    $tempScriptPath = Join-Path ([IO.Path]::GetTempPath()) (
+        "bestcfcdn_update_{0}_{1}.py" -f $PID, ([guid]::NewGuid()).ToString("N")
+    )
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    try {
+        [IO.File]::WriteAllText($tempScriptPath, $Code, $utf8NoBom)
+        $pythonArguments = @("-X", "utf8", $tempScriptPath) + $Arguments
+        $result = Invoke-UpdatePython -Arguments $pythonArguments -AllowFailure:$AllowFailure
+        return $result
+    } finally {
+        Remove-Item -LiteralPath $tempScriptPath -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Test-GitTrackedPath {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    # 不使用 --error-unmatch，避免未跟踪的 config.json 产生误导性 pathspec 错误。
+    $result = Invoke-Git -Arguments @("ls-files", "--", $Path) -Quiet
+    return @($result.Output | Where-Object { $_ -eq $Path }).Count -gt 0
+}
+
 $git = Get-Command git.exe -CommandType Application -ErrorAction SilentlyContinue |
     Select-Object -First 1
 if (-not $git) { throw "未找到 git.exe，请先运行 setup.ps1。" }
@@ -125,7 +157,7 @@ if ($configExistedBeforeUpdate) {
         throw "未找到 Python，无法在更新前安全校验并合并现有 config.json。"
     }
     $validateCode = "import json, sys; data=json.load(open(sys.argv[1], encoding='utf-8-sig')); assert isinstance(data, dict), 'config root must be an object'"
-    $configValid = Invoke-UpdatePython -Arguments @("-X", "utf8", "-c", $validateCode, $configPath) -AllowFailure
+    $configValid = Invoke-UpdatePythonCode -Code $validateCode -Arguments @($configPath) -AllowFailure
     if (-not $configValid) {
         throw "config.json 不是有效的 JSON，已在更新前停止，请先修正配置。"
     }
@@ -172,10 +204,10 @@ foreach ($name in @("config.json", "ip.local.txt")) {
 }
 $legacyIpBackup = Join-Path $BackupDir "ip.legacy.txt"
 if (Test-Path -LiteralPath "ip.txt" -PathType Leaf) {
-    $ipTrackedBeforeUpdate = Invoke-Git -Arguments @("ls-files", "--error-unmatch", "ip.txt") -AllowFailure -Quiet
+    $ipTrackedBeforeUpdate = Test-GitTrackedPath -Path "ip.txt"
     $ipWorktreeClean = Invoke-Git -Arguments @("diff", "--quiet", "--", "ip.txt") -AllowFailure -Quiet
     $ipIndexClean = Invoke-Git -Arguments @("diff", "--cached", "--quiet", "--", "ip.txt") -AllowFailure -Quiet
-    if (-not $ipTrackedBeforeUpdate.Success -or -not $ipWorktreeClean.Success -or -not $ipIndexClean.Success) {
+    if (-not $ipTrackedBeforeUpdate -or -not $ipWorktreeClean.Success -or -not $ipIndexClean.Success) {
         Copy-Item -LiteralPath "ip.txt" -Destination $legacyIpBackup -Force
     }
 }
@@ -188,12 +220,12 @@ $updateError = $null
 try {
     # 只有 fetch 和快进检查都成功后，才临时还原旧版本中可能被跟踪的本机文件。
     $mutationStarted = $true
-    $configTracked = Invoke-Git -Arguments @("ls-files", "--error-unmatch", "config.json") -AllowFailure -Quiet
-    if ($configTracked.Success) {
+    $configTracked = Test-GitTrackedPath -Path "config.json"
+    if ($configTracked) {
         $null = Invoke-Git -Arguments @("restore", "--staged", "--worktree", "--", "config.json") -Quiet
     }
-    $ipTracked = Invoke-Git -Arguments @("ls-files", "--error-unmatch", "ip.txt") -AllowFailure -Quiet
-    if ($ipTracked.Success) {
+    $ipTracked = Test-GitTrackedPath -Path "ip.txt"
+    if ($ipTracked) {
         $null = Invoke-Git -Arguments @("restore", "--staged", "--worktree", "--", "ip.txt") -Quiet
     } elseif (Test-Path -LiteralPath "ip.txt") {
         Remove-Item -LiteralPath "ip.txt" -Force
@@ -210,27 +242,26 @@ try {
         $mergeCode = @'
 import json, os, sys
 backup_path, template_path, temp_path, output_path = sys.argv[1:]
-with open(backup_path, encoding="utf-8-sig") as f:
+with open(backup_path, encoding='utf-8-sig') as f:
     backup = json.load(f)
-with open(template_path, encoding="utf-8-sig") as f:
+with open(template_path, encoding='utf-8-sig') as f:
     current = json.load(f)
 if not isinstance(backup, dict) or not isinstance(current, dict):
-    raise ValueError("config root must be an object")
-legacy_remote = str(backup.get("GITHUB_SYNC_REMOTE_PATH", "ip.txt")).strip()
+    raise ValueError('config root must be an object')
+legacy_remote = str(backup.get('GITHUB_SYNC_REMOTE_PATH', 'ip.txt')).strip()
 for key, value in backup.items():
-    if key in current and not key.startswith("_comment"):
-        if key == "OUTPUT_FILE" and os.path.normcase(os.path.normpath(str(value))) == os.path.normcase(os.path.normpath(legacy_remote)):
+    if key in current and not key.startswith('_comment'):
+        if key == 'OUTPUT_FILE' and os.path.normcase(os.path.normpath(str(value))) == os.path.normcase(os.path.normpath(legacy_remote)):
             continue
         current[key] = value
-with open(temp_path, "w", encoding="utf-8", newline="\n") as f:
+with open(temp_path, 'w', encoding='utf-8', newline='\n') as f:
     json.dump(current, f, ensure_ascii=False, indent=4)
-    f.write("\n")
+    f.write('\n')
     f.flush()
     os.fsync(f.fileno())
 os.replace(temp_path, output_path)
 '@
-        $mergeOk = Invoke-UpdatePython -Arguments @(
-            "-X", "utf8", "-c", $mergeCode,
+        $mergeOk = Invoke-UpdatePythonCode -Code $mergeCode -Arguments @(
             $configBackup, $configTemplate, $configTempPath, $configPath
         ) -AllowFailure
         if (-not $mergeOk) { throw "config.json 合并失败。" }
