@@ -28,10 +28,10 @@ class ConfigDefaultsTests(unittest.TestCase):
             {
                 "GITHUB_SYNC_TOKEN": "github_pat_test",
                 "GITHUB_SYNC_REPOSITORY": "owner/repo",
-                "GITHUB_SYNC_FIELD_ID": "济南联通",
+                "GITHUB_SYNC_FIELD_ID": "device-a",
             }
         )
-        self.assertEqual("济南联通", github_sync.validate_config(config)[4])
+        self.assertEqual("device-a", github_sync.validate_config(config)[4])
 
     def test_wxpusher_is_disabled_by_default(self):
         with self.CONFIG_TEMPLATE.open("r", encoding="utf-8-sig") as file:
@@ -262,26 +262,26 @@ class GitHubSyncTests(unittest.TestCase):
             file.write(content)
             path = file.name
         try:
-            nodes = github_sync.prepare_local_nodes(path, "济南联通", 5)
+            nodes = github_sync.prepare_local_nodes(path, "device-a", 5)
         finally:
             os.remove(path)
         self.assertEqual(5, len(nodes))
-        self.assertEqual("104.16.0.1:443#US|济南联通 1.00 Mbps", nodes[0])
+        self.assertEqual("104.16.0.1:443#US|device-a 1.00 Mbps", nodes[0])
 
     def test_merge_replaces_only_owned_lines(self):
         remote = (
-            "104.16.0.1:443#US|济南联通\n"
-            "162.159.0.1:443#US|郑州教育网\n"
+            "104.16.0.1:443#US|device-a\n"
+            "162.159.0.1:443#US|device-b\n"
             "保留的普通文本\n"
-            "104.16.0.2:443#US|济南联通\n"
+            "104.16.0.2:443#US|device-a\n"
         )
-        local = ["104.17.0.1:443#US|济南联通"]
-        merged = github_sync.merge_nodes(remote, "济南联通", local)
-        self.assertIn("104.17.0.1:443#US|济南联通", merged)
-        self.assertIn("162.159.0.1:443#US|郑州教育网", merged)
+        local = ["104.17.0.1:443#US|device-a"]
+        merged = github_sync.merge_nodes(remote, "device-a", local)
+        self.assertIn("104.17.0.1:443#US|device-a", merged)
+        self.assertIn("162.159.0.1:443#US|device-b", merged)
         self.assertIn("保留的普通文本", merged)
-        self.assertNotIn("104.16.0.1:443#US|济南联通", merged)
-        self.assertNotIn("104.16.0.2:443#US|济南联通", merged)
+        self.assertNotIn("104.16.0.1:443#US|device-a", merged)
+        self.assertNotIn("104.16.0.2:443#US|device-a", merged)
 
 
 class ScheduleTests(unittest.TestCase):

@@ -131,7 +131,7 @@ class SetupUpdateIntegrationTests(unittest.TestCase):
 
     def test_updater_preserves_values_adds_fields_and_is_idempotent(self):
         local_config = {
-            "GITHUB_SYNC_FIELD_ID": "济南联通",
+            "GITHUB_SYNC_FIELD_ID": "device-a",
             "ENABLE_SCHEDULED_TASK": False,
             "OUTPUT_FILE": "ip.txt",
             "GITHUB_SYNC_REMOTE_PATH": "ip.txt",
@@ -153,7 +153,7 @@ class SetupUpdateIntegrationTests(unittest.TestCase):
 
         with (self.client / "config.json").open(encoding="utf-8") as file:
             merged = json.load(file)
-        self.assertEqual("济南联通", merged["GITHUB_SYNC_FIELD_ID"])
+        self.assertEqual("device-a", merged["GITHUB_SYNC_FIELD_ID"])
         self.assertFalse(merged["ENABLE_SCHEDULED_TASK"])
         self.assertEqual("custom-value", merged["EXISTING_SETTING"])
         self.assertEqual(42, merged["NEW_SETTING"])
