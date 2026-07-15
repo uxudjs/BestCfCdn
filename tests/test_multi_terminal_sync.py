@@ -57,6 +57,8 @@ class ConfigDefaultsTests(unittest.TestCase):
         self.assertEqual(5, config["HTTP_JITTER_SAMPLES"])
         self.assertEqual(0.30, config["PROXY_SCORE_BANDWIDTH_WEIGHT"])
         self.assertEqual(0.40, config["PROXY_SCORE_HTTP_LATENCY_WEIGHT"])
+        self.assertEqual(0.25, config["BANDWIDTH_MIN_PARTIAL_MB"])
+        self.assertEqual(1.0, config["BANDWIDTH_MIN_TRANSFER_SECONDS"])
         self.assertNotIn("SPEED_WEIGHT", config)
 
     def test_runtime_fallback_matches_latest_mainland_defaults(self):
@@ -80,6 +82,8 @@ class ConfigDefaultsTests(unittest.TestCase):
             "CF_ENABLED",
             "DNS_IP_RISK_FILTER_ENABLED",
             "BLOCKED_COUNTRIES",
+            "BANDWIDTH_MIN_PARTIAL_MB",
+            "BANDWIDTH_MIN_TRANSFER_SECONDS",
         ):
             self.assertEqual(template[key], defaults[key])
 

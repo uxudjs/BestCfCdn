@@ -217,19 +217,25 @@
     "_comment_BANDWIDTH_TIMEOUT": "单个节点带宽测速超时（秒）",
 
     "BANDWIDTH_RETRY_MAX": 2,
-    "_comment_BANDWIDTH_RETRY_MAX": "带宽测速整体失败（结果为空）时的最大重试轮数",
+    "_comment_BANDWIDTH_RETRY_MAX": "带宽测速最大轮数；后续轮次只重试连接、超时或服务端5xx等临时失败节点",
 
     "BANDWIDTH_RETRY_DELAY": 3,
     "_comment_BANDWIDTH_RETRY_DELAY": "带宽测速重试间隔（秒）",
 
     "BANDWIDTH_URL_TEMPLATE": "https://speed.cloudflare.com/__down?bytes={bytes}",
-    "_comment_BANDWIDTH_URL_TEMPLATE": "带宽测速 URL 模板，{bytes} 将被替换为实际字节数",
+    "_comment_BANDWIDTH_URL_TEMPLATE": "带宽测速 URL 模板，{bytes} 将被替换为实际字节数；目标应直接返回2xx，重定向会被拒绝以免离开候选节点",
 
     "BANDWIDTH_PROCESS_BUFFER": 2,
     "_comment_BANDWIDTH_PROCESS_BUFFER": "带宽测速 curl 进程额外缓冲时间（秒）",
 
     "BANDWIDTH_CONNECT_TIMEOUT": 5,
     "_comment_BANDWIDTH_CONNECT_TIMEOUT": "curl 测速连接超时（秒）",
+
+    "BANDWIDTH_MIN_PARTIAL_MB": 0.25,
+    "_comment_BANDWIDTH_MIN_PARTIAL_MB": "curl 因超时中断时，至少下载这些 MB 才使用部分样本估算带宽；设为0可禁用部分样本",
+
+    "BANDWIDTH_MIN_TRANSFER_SECONDS": 1.0,
+    "_comment_BANDWIDTH_MIN_TRANSFER_SECONDS": "超时部分样本至少需要持续传输的秒数，避免短暂突发造成虚高测速",
 
     "_comment_PROXY_SCORING": "代理体验综合评分 v2：带宽收益递减，HTTP 延迟优先，并考虑抖动与 TCP 延迟",
     "PROXY_SCORE_BANDWIDTH_WEIGHT": 0.30,

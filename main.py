@@ -18,11 +18,14 @@ import time
 import sys
 import re
 import os
+import math
 import subprocess
 import shutil
 import json
 import asyncio
 import aiohttp
+from collections import Counter, defaultdict
+from dataclasses import dataclass
 from local_state import resolve_local_output
 from proxy_scoring import (
     rank_proxy_candidates,
@@ -30,8 +33,9 @@ from proxy_scoring import (
     summarize_latency_samples,
 )
 import ipaddress
-from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Optional
+from urllib.parse import urlsplit
 from urllib3.exceptions import InsecureRequestWarning
 
 # 修复 Windows 下 ProactorEventLoop 残留任务报警
@@ -261,6 +265,8 @@ def load_config():
         "BANDWIDTH_URL_TEMPLATE": "https://speed.cloudflare.com/__down?bytes={bytes}",
         "BANDWIDTH_PROCESS_BUFFER": 2,
         "BANDWIDTH_CONNECT_TIMEOUT": 5,
+        "BANDWIDTH_MIN_PARTIAL_MB": 0.25,
+        "BANDWIDTH_MIN_TRANSFER_SECONDS": 1.0,
         "PROXY_SCORE_BANDWIDTH_WEIGHT": 0.30,
         "PROXY_SCORE_HTTP_LATENCY_WEIGHT": 0.40,
         "PROXY_SCORE_JITTER_WEIGHT": 0.20,
@@ -390,6 +396,8 @@ BANDWIDTH_RETRY_DELAY = cfg["BANDWIDTH_RETRY_DELAY"]
 BANDWIDTH_URL_TEMPLATE = cfg["BANDWIDTH_URL_TEMPLATE"]
 BANDWIDTH_PROCESS_BUFFER = cfg["BANDWIDTH_PROCESS_BUFFER"]
 BANDWIDTH_CONNECT_TIMEOUT = cfg["BANDWIDTH_CONNECT_TIMEOUT"]
+BANDWIDTH_MIN_PARTIAL_MB = cfg["BANDWIDTH_MIN_PARTIAL_MB"]
+BANDWIDTH_MIN_TRANSFER_SECONDS = cfg["BANDWIDTH_MIN_TRANSFER_SECONDS"]
 IP_CALIBRATION_CONCURRENCY = cfg["IP_CALIBRATION_CONCURRENCY"]
 MAX_WORKERS = cfg["MAX_WORKERS"]
 AVAILABILITY_WORKERS = cfg["AVAILABILITY_WORKERS"]
@@ -1219,77 +1227,394 @@ def http_server_filter(candidates, config):
     print(f"HTTP检测经 {max_rounds} 轮重试后仍无节点通过，降级使用过滤前候选列表。")
     return candidates, {}, {}
 
-def measure_bandwidth_curl(node_str):
+_BANDWIDTH_WRITE_OUT_MARKER = "__BESTCFCDN_BW__"
+_BANDWIDTH_COMPLETE_RATIO = 0.95
+_RETRYABLE_CURL_CODES = frozenset((5, 6, 7, 16, 18, 28, 35, 52, 55, 56, 92))
+
+
+@dataclass(frozen=True)
+class BandwidthMeasurement:
+    node: str
+    speed_mbps: float = 0.0
+    partial: bool = False
+    reason: str = ""
+    retryable: bool = False
+    returncode: Optional[int] = None
+    http_code: Optional[int] = None
+    downloaded_bytes: float = 0.0
+    http_version: str = ""
+
+    @property
+    def valid(self):
+        return math.isfinite(self.speed_mbps) and self.speed_mbps > 0
+
+
+def _failed_bandwidth_measurement(
+    node,
+    reason,
+    *,
+    retryable=False,
+    returncode=None,
+    http_code=None,
+    downloaded_bytes=0.0,
+    http_version="",
+):
+    return BandwidthMeasurement(
+        node=node,
+        reason=reason,
+        retryable=retryable,
+        returncode=returncode,
+        http_code=http_code,
+        downloaded_bytes=downloaded_bytes,
+        http_version=http_version,
+    )
+
+
+def _bandwidth_target(url):
+    try:
+        parsed = urlsplit(url)
+        if parsed.scheme not in ("http", "https") or not parsed.hostname:
+            raise ValueError("必须是包含主机名的 HTTP/HTTPS URL")
+        logical_port = parsed.port
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"BANDWIDTH_URL_TEMPLATE 无效：{exc}") from exc
+    if logical_port is None:
+        logical_port = 443 if parsed.scheme == "https" else 80
+    return parsed.hostname, logical_port
+
+
+def _bandwidth_settings():
+    try:
+        expected_size = float(BANDWIDTH_SIZE_MB) * 1024 * 1024
+        min_partial_size = float(BANDWIDTH_MIN_PARTIAL_MB) * 1024 * 1024
+        min_transfer_seconds = float(BANDWIDTH_MIN_TRANSFER_SECONDS)
+        process_timeout = float(BANDWIDTH_TIMEOUT) + float(BANDWIDTH_PROCESS_BUFFER)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"带宽测速数值配置无效：{exc}") from exc
+    if expected_size <= 0:
+        raise ValueError("BANDWIDTH_SIZE_MB 必须大于 0")
+    if min_partial_size < 0:
+        raise ValueError("BANDWIDTH_MIN_PARTIAL_MB 不得小于 0")
+    if min_transfer_seconds < 0:
+        raise ValueError("BANDWIDTH_MIN_TRANSFER_SECONDS 不得小于 0")
+    if process_timeout <= 0:
+        raise ValueError("带宽测速进程超时必须大于 0")
+    return expected_size, min_partial_size, min_transfer_seconds, process_timeout
+
+
+def _parse_bandwidth_write_out(stdout):
+    for line in reversed((stdout or "").splitlines()):
+        if not line.startswith(_BANDWIDTH_WRITE_OUT_MARKER):
+            continue
+        fields = line[len(_BANDWIDTH_WRITE_OUT_MARKER):].split("\t")
+        if len(fields) != 5:
+            return None
+        try:
+            return {
+                "http_code": int(fields[0]),
+                "http_version": fields[1].strip(),
+                "size_bytes": float(fields[2]),
+                "time_starttransfer": float(fields[3]),
+                "time_total": float(fields[4]),
+            }
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _curl_failure_reason(returncode, stderr=""):
+    error_text = (stderr or "").lower()
+    if returncode in (2, 4) and (
+        "not support" in error_text or "disabled" in error_text
+    ):
+        return "curl 功能不兼容"
+    reasons = {
+        5: "代理域名解析失败（curl 5）",
+        6: "测速域名解析失败（curl 6）",
+        7: "连接失败（curl 7）",
+        16: "HTTP/2 传输错误（curl 16）",
+        18: "服务端提前中断下载（curl 18）",
+        28: "传输超时且样本不足（curl 28）",
+        35: "TLS 握手失败（curl 35）",
+        52: "服务端未返回数据（curl 52）",
+        55: "发送数据失败（curl 55）",
+        56: "接收数据失败（curl 56）",
+        60: "TLS 证书校验失败（curl 60）",
+        92: "HTTP/2 数据流异常（curl 92）",
+    }
+    return reasons.get(returncode, f"curl 退出码 {returncode}")
+
+
+def measure_bandwidth_curl(node_str, curl_path=None, target=None, settings=None):
     m = IP_PORT_PATTERN.match(node_str)
     if not m:
-        return (node_str, 0)
-    ip, port = m.group(1), m.group(2)
+        return _failed_bandwidth_measurement(node_str, "节点格式无效")
+    ip, port_text = m.group(1), m.group(2)
+    try:
+        candidate_port = int(port_text)
+        if not 1 <= candidate_port <= 65535:
+            raise ValueError
+    except ValueError:
+        return _failed_bandwidth_measurement(node_str, "节点端口无效")
+
+    curl_path = curl_path or shutil.which("curl")
+    if not curl_path:
+        return _failed_bandwidth_measurement(node_str, "未检测到 curl")
+    try:
+        target_host, logical_port = target or _bandwidth_target(BANDWIDTH_URL)
+        (
+            expected_size,
+            min_partial_size,
+            min_transfer_seconds,
+            process_timeout,
+        ) = settings or _bandwidth_settings()
+    except ValueError as exc:
+        return _failed_bandwidth_measurement(node_str, f"测速配置错误：{exc}")
 
     null_device = "NUL" if sys.platform == "win32" else "/dev/null"
-    expected_size = BANDWIDTH_SIZE_MB * 1024 * 1024
-
+    write_out = (
+        f"{_BANDWIDTH_WRITE_OUT_MARKER}%{{http_code}}\t%{{http_version}}\t"
+        "%{size_download}\t%{time_starttransfer}\t%{time_total}\n"
+    )
     curl_cmd = [
-        "curl", "-s", "-o", null_device,
-        "-w", "%{size_download} %{time_starttransfer} %{time_total}",
-        "-L",
-        "-H", "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-        "--http2",
-        "--noproxy", "*",
-        "--resolve", f"speed.cloudflare.com:{port}:{ip}",
-        "--connect-timeout", str(BANDWIDTH_CONNECT_TIMEOUT),
-        "--max-time", str(BANDWIDTH_TIMEOUT),
-        "--insecure",
-        BANDWIDTH_URL
+        curl_path,
+        "--silent",
+        "--show-error",
+        "--output",
+        null_device,
+        "--write-out",
+        write_out,
+        "--header",
+        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 "
+        "Safari/537.36",
+        "--noproxy",
+        "*",
+        "--connect-to",
+        f"{target_host}:{logical_port}:{ip}:{candidate_port}",
+        "--connect-timeout",
+        str(BANDWIDTH_CONNECT_TIMEOUT),
+        "--max-time",
+        str(BANDWIDTH_TIMEOUT),
+        BANDWIDTH_URL,
     ]
 
     try:
-        result = subprocess.run(curl_cmd, capture_output=True, text=True,
-                                timeout=BANDWIDTH_TIMEOUT + BANDWIDTH_PROCESS_BUFFER)
-        if result.returncode == 0 and result.stdout.strip():
-            parts = result.stdout.strip().split()
-            if len(parts) >= 3:
-                size_bytes = float(parts[0])
-                if size_bytes < expected_size:
-                    return (node_str, 0)
-                time_starttransfer = float(parts[1])
-                time_total = float(parts[2])
-                transfer_time = time_total - time_starttransfer
-                if transfer_time > 0:
-                    speed_mbps = (size_bytes * 8) / (transfer_time * 1000 * 1000)
-                    return (node_str, speed_mbps)
+        result = subprocess.run(
+            curl_cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=process_timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return _failed_bandwidth_measurement(
+            node_str, "curl 子进程超时", retryable=True
+        )
+    except OSError:
+        return _failed_bandwidth_measurement(node_str, "无法启动 curl")
     except Exception:
-        pass
-    return (node_str, 0)
+        return _failed_bandwidth_measurement(
+            node_str, "测速内部错误", retryable=True
+        )
+
+    metrics = _parse_bandwidth_write_out(result.stdout)
+    if metrics is None:
+        return _failed_bandwidth_measurement(
+            node_str,
+            _curl_failure_reason(result.returncode, result.stderr)
+            if result.returncode
+            else "curl 指标解析失败",
+            retryable=result.returncode in _RETRYABLE_CURL_CODES,
+            returncode=result.returncode,
+        )
+
+    http_code = metrics["http_code"]
+    http_version = metrics["http_version"]
+    size_bytes = metrics["size_bytes"]
+    transfer_time = metrics["time_total"] - metrics["time_starttransfer"]
+    common = {
+        "returncode": result.returncode,
+        "http_code": http_code,
+        "downloaded_bytes": size_bytes,
+        "http_version": http_version,
+    }
+    if http_code == 0:
+        return _failed_bandwidth_measurement(
+            node_str,
+            _curl_failure_reason(result.returncode, result.stderr)
+            if result.returncode
+            else "HTTP 无响应",
+            retryable=result.returncode in _RETRYABLE_CURL_CODES,
+            **common,
+        )
+    if not 200 <= http_code < 300:
+        return _failed_bandwidth_measurement(
+            node_str,
+            f"HTTP {http_code or '无响应'}",
+            retryable=http_code in (408, 425, 429) or 500 <= http_code < 600,
+            **common,
+        )
+    if not math.isfinite(transfer_time) or transfer_time <= 0:
+        return _failed_bandwidth_measurement(
+            node_str, "有效传输时间无效", retryable=True, **common
+        )
+
+    complete_size = expected_size * _BANDWIDTH_COMPLETE_RATIO
+    full_sample = result.returncode == 0 and size_bytes >= complete_size
+    partial_sample = (
+        result.returncode == 28
+        and min_partial_size > 0
+        and size_bytes >= min_partial_size
+        and transfer_time >= min_transfer_seconds
+    )
+    if not full_sample and not partial_sample:
+        if result.returncode:
+            reason = _curl_failure_reason(result.returncode, result.stderr)
+            retryable = result.returncode in _RETRYABLE_CURL_CODES
+        else:
+            reason = "下载数据不足"
+            retryable = True
+        return _failed_bandwidth_measurement(
+            node_str, reason, retryable=retryable, **common
+        )
+
+    speed_mbps = (size_bytes * 8) / (transfer_time * 1000 * 1000)
+    if not math.isfinite(speed_mbps) or speed_mbps <= 0:
+        return _failed_bandwidth_measurement(
+            node_str, "带宽计算结果无效", retryable=True, **common
+        )
+    return BandwidthMeasurement(
+        node=node_str,
+        speed_mbps=speed_mbps,
+        partial=partial_sample,
+        **common,
+    )
+
+
+def _print_bandwidth_summary(measurements):
+    valid = [item for item in measurements if item.valid]
+    partial_count = sum(item.partial for item in valid)
+    full_count = len(valid) - partial_count
+    print(
+        f"  本轮有效结果：{len(valid)}/{len(measurements)}"
+        f"（完整 {full_count}，超时部分样本 {partial_count}）"
+    )
+    failures = Counter(item.reason for item in measurements if not item.valid)
+    if failures:
+        summary = "；".join(
+            f"{reason} ×{count}"
+            for reason, count in sorted(
+                failures.items(), key=lambda item: (-item[1], item[0])
+            )
+        )
+        print(f"  失败统计：{summary}")
+
 
 def bandwidth_filter(candidates):
     if not candidates:
         return []
 
-    if not shutil.which("curl"):
+    curl_path = shutil.which("curl")
+    if not curl_path:
         print("未检测到 curl 命令，带宽测速将跳过。")
-        return []
+        return [
+            _failed_bandwidth_measurement(node, "未检测到 curl")
+            for node in candidates
+        ]
+    try:
+        target = _bandwidth_target(BANDWIDTH_URL)
+        settings = _bandwidth_settings()
+    except ValueError as exc:
+        reason = f"测速配置错误：{exc}"
+        print(reason)
+        return [_failed_bandwidth_measurement(node, reason) for node in candidates]
 
-    print(f"\n开始带宽测速（对前 {len(candidates)} 个节点，并发 {BANDWIDTH_WORKERS}，超时 {BANDWIDTH_TIMEOUT}s）...")
-    results = []
+    print(
+        f"\n开始带宽测速（{len(candidates)} 个节点，并发 {BANDWIDTH_WORKERS}，"
+        f"超时 {BANDWIDTH_TIMEOUT}s，HTTP 版本自动协商）..."
+    )
+    measurements = []
     completed = 0
     total = len(candidates)
     last_print = time.time()
 
     with ThreadPoolExecutor(max_workers=BANDWIDTH_WORKERS) as executor:
-        futures = {executor.submit(measure_bandwidth_curl, node): node for node in candidates}
+        futures = {
+            executor.submit(
+                measure_bandwidth_curl, node, curl_path, target, settings
+            ): node
+            for node in candidates
+        }
         for future in as_completed(futures):
             completed += 1
-            node, speed = future.result()
-            if speed > 0:
-                results.append((node, speed))
+            node = futures[future]
+            try:
+                measurement = future.result()
+            except Exception:
+                measurement = _failed_bandwidth_measurement(
+                    node, "测速线程异常", retryable=True
+                )
+            measurements.append(measurement)
             now = time.time()
             if now - last_print >= PROGRESS_PRINT_INTERVAL or completed == total:
-                print(f"\r[带宽测速] 进度：{completed}/{total} ({(completed/total)*100:.1f}%)", end="", flush=True)
+                print(
+                    f"\r[带宽测速] 进度：{completed}/{total} "
+                    f"({(completed/total)*100:.1f}%)",
+                    end="",
+                    flush=True,
+                )
                 last_print = now
 
     print()
-    results.sort(key=lambda x: x[1], reverse=True)
-    return results
+    _print_bandwidth_summary(measurements)
+    return measurements
+
+
+def bandwidth_filter_with_retry(candidates):
+    successful = {}
+    failures = {}
+    pending = list(candidates)
+    max_rounds = max(1, int(BANDWIDTH_RETRY_MAX))
+    attempts_run = 0
+
+    for attempt in range(1, max_rounds + 1):
+        attempts_run = attempt
+        print(
+            f"\n[带宽测速] 第 {attempt}/{max_rounds} 轮测试"
+            f"（待测 {len(pending)} 个）..."
+        )
+        retryable_nodes = []
+        for measurement in bandwidth_filter(pending):
+            if measurement.valid:
+                successful[measurement.node] = measurement
+                failures.pop(measurement.node, None)
+            else:
+                failures[measurement.node] = measurement
+                if measurement.retryable:
+                    retryable_nodes.append(measurement.node)
+
+        if not retryable_nodes or attempt >= max_rounds:
+            break
+        pending = retryable_nodes
+        print(
+            f"保留已成功结果，仅重试 {len(retryable_nodes)} 个临时失败节点；"
+            f"{BANDWIDTH_RETRY_DELAY} 秒后继续..."
+        )
+        time.sleep(BANDWIDTH_RETRY_DELAY)
+
+    results = [
+        (node, measurement.speed_mbps)
+        for node, measurement in successful.items()
+    ]
+    results.sort(key=lambda item: item[1], reverse=True)
+    if results and failures:
+        print(
+            f"带宽测速获得 {len(results)} 个有效结果；其余 "
+            f"{len(failures)} 个节点按缺失带宽低优先级处理。"
+        )
+    return results, failures, attempts_run
 
 def batch_update_cloudflare_dns(
     ip_list,
@@ -1806,21 +2131,15 @@ def main():
     candidates_after_availability, avail_ip_info, avail_exit_details = availability_filter_with_retry(candidates)
     candidates_after_http, http_latency_map, http_jitter_map = http_server_filter(candidates_after_availability, cfg)
 
-    bw_results = []
-    for attempt in range(1, BANDWIDTH_RETRY_MAX + 1):
-        print(f"\n[带宽测速] 第 {attempt} 轮测试...")
-        bw_results = bandwidth_filter(candidates_after_http)
-        if bw_results:
-            break
-        if attempt < BANDWIDTH_RETRY_MAX:
-            print(f"本轮测速无有效结果，等待 {BANDWIDTH_RETRY_DELAY} 秒后重试...")
-            time.sleep(BANDWIDTH_RETRY_DELAY)
+    bw_results, _, bandwidth_rounds = (
+        bandwidth_filter_with_retry(candidates_after_http)
+    )
 
     bandwidth_available = bool(bw_results)
     if not bandwidth_available:
-        print("\n带宽测速多次重试仍无有效结果，将使用已通过后续检测的节点按延迟体验排序。")
+        print("\n带宽测速未获得有效结果，将使用已通过后续检测的节点按延迟体验排序。")
         send_wxpusher_notification(
-            content=f"带宽测速经 {BANDWIDTH_RETRY_MAX} 轮尝试后仍无有效结果，已降级使用通过可用性/HTTP 检测的节点按延迟体验排序。",
+            content=f"带宽测速完成 {bandwidth_rounds} 轮后仍无有效结果，已降级使用通过可用性/HTTP 检测的节点按延迟体验排序。",
             summary="带宽测速全部失败"
         )
         fallback_candidates = (
