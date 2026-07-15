@@ -1,3 +1,4 @@
+import ast
 import json
 import os
 import tempfile
@@ -58,6 +59,30 @@ class ConfigDefaultsTests(unittest.TestCase):
         self.assertEqual(0.40, config["PROXY_SCORE_HTTP_LATENCY_WEIGHT"])
         self.assertNotIn("SPEED_WEIGHT", config)
 
+    def test_runtime_fallback_matches_latest_mainland_defaults(self):
+        with self.CONFIG_TEMPLATE.open("r", encoding="utf-8-sig") as file:
+            template = json.load(file)
+
+        tree = ast.parse(
+            (PROJECT_ROOT / "main.py").read_text(encoding="utf-8-sig")
+        )
+        defaults = None
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign) and any(
+                isinstance(target, ast.Name) and target.id == "defaults"
+                for target in node.targets
+            ):
+                defaults = ast.literal_eval(node.value)
+                break
+
+        self.assertIsNotNone(defaults)
+        for key in (
+            "CF_ENABLED",
+            "DNS_IP_RISK_FILTER_ENABLED",
+            "BLOCKED_COUNTRIES",
+        ):
+            self.assertEqual(template[key], defaults[key])
+
     def test_legacy_overlapping_output_is_migrated_at_runtime(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             config_path = os.path.join(temp_dir, "config.json")
@@ -108,6 +133,45 @@ class SetupScriptTests(unittest.TestCase):
         self.assertIn("无法关闭本项目计划任务", script)
         self.assertIn('手动运行：& `"$PythonExePath`" -X utf8', script)
         self.assertNotIn("pip show", script)
+
+    def test_setup_is_the_single_entrypoint_for_safe_updates(self):
+        windows_setup = (PROJECT_ROOT / "setup.ps1").read_text(
+            encoding="utf-8-sig"
+        )
+        windows_update = (PROJECT_ROOT / "update_fork.ps1").read_text(
+            encoding="utf-8-sig"
+        )
+        linux_setup = (PROJECT_ROOT / "setup.sh").read_text(encoding="utf-8")
+        linux_update = (PROJECT_ROOT / "update_fork.sh").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("[switch]$SkipAutoUpdate", windows_setup)
+        self.assertIn(
+            '& $updateScriptPath -Branch "main" -NonInteractive -PreserveMissingConfig',
+            windows_setup,
+        )
+        self.assertLess(
+            windows_setup.index("& $updateScriptPath"),
+            windows_setup.index('$configPath = Join-Path $ScriptDir "config.json"'),
+        )
+        self.assertIn("Restart-UpdatedSetup", windows_setup)
+        self.assertIn("-SkipAutoUpdate", windows_setup)
+        self.assertIn("[switch]$NonInteractive", windows_update)
+        self.assertIn("[switch]$PreserveMissingConfig", windows_update)
+        self.assertIn("if (-not $NonInteractive)", windows_update)
+
+        self.assertIn('UPDATE_HELPER="$SCRIPT_DIR/update_fork.sh"', linux_setup)
+        self.assertIn("--preserve-missing-config", linux_setup)
+        self.assertIn('BESTCFCDN_SETUP_REEXEC_DEPTH="$NEXT_REEXEC_DEPTH"', linux_setup)
+        self.assertIn("BESTCFCDN_SETUP_RETRY_AUTO_UPDATE", linux_setup)
+        self.assertLess(
+            linux_setup.index('run_as_target bash "$UPDATE_HELPER"'),
+            linux_setup.index('if [[ -e $CONFIG_PATH && ! -f $CONFIG_PATH ]]'),
+        )
+        self.assertIn("--preserve-missing-config", linux_update)
+        self.assertIn("PRESERVE_MISSING_CONFIG", linux_update)
+        self.assertNotIn('bash "$SCRIPT_DIR/setup.sh"', linux_update)
 
     def test_scheduler_enables_utf8_for_child_process(self):
         script = (PROJECT_ROOT / "scheduled_run.py").read_text(encoding="utf-8")

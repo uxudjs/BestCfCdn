@@ -50,11 +50,11 @@
 | ☁️ **Cloudflare DNS 更新** | 原子批量替换同名 A/TXT 记录 |
 | 📬 **微信实时通知** | 集成 WxPusher，异常/结果推送 |
 | 🔄 **峰谷定时运行** | 中国 CF CDN 忙时每 15 分钟，非忙时每 30 分钟 |
-| 🚀 **一键部署** | `setup.ps1` / `setup.sh` 自动安装依赖并配置 |
+| 🚀 **一键部署与更新** | 日常只需运行 `setup.ps1` / `setup.sh`，自动安全更新、安装依赖并应用配置 |
 | 📤 **多终端安全同步** | 每台终端只替换自己的 5 行，冲突时自动拉取并重新合并 |
 | 🔒 **隐私保护** | 仓库只跟踪配置模板；含 Token 的本机 `config.json` 默认被 Git 忽略 |
 | 🖥️ **跨平台兼容** | 同时支持 Windows 和 Linux |
-| 🔄 **安全更新** | 内置 `update_fork.ps1` / `update_fork.sh`，快进更新并保留本机配置 |
+| 🔄 **安全更新** | setup 内部调用安全更新器，仅允许快进更新并保留本机配置与优选结果 |
 
 ---
 
@@ -70,13 +70,13 @@
 | `scheduled_run.py` | 按中国 CF CDN 峰谷时段运行并防止任务重叠 |
 | `git_sync.ps1` | Windows 手动同步入口 |
 | `git_sync.sh` | Linux 手动同步入口 |
-| `setup.ps1` | Windows 分两阶段部署（先生成配置，复跑后安装依赖并配置计划任务） |
-| `setup.sh` | Linux 分两阶段部署（先生成配置，复跑后安装依赖并配置 cron） |
+| `setup.ps1` | Windows 唯一日常入口：安全检查更新，并分两阶段完成配置与部署 |
+| `setup.sh` | Linux 唯一日常入口：安全检查更新，并分两阶段完成配置与部署 |
 | `requirements.txt` | Windows/Linux 共用的核心 Python 依赖清单 |
 | `ip.local.txt` | 本机最终优选节点（每次运行覆盖，Git 忽略） |
 | `ip.txt` | GitHub 多终端远端汇总文件（程序不会作为本机输入覆盖） |
-| `update_fork.ps1` | Windows 安全更新脚本（备份并保留本机配置） |
-| `update_fork.sh` | Linux 安全更新脚本（备份并保留本机配置） |
+| `update_fork.ps1` | Windows 内部安全更新器，仅供高级排错或故障恢复 |
+| `update_fork.sh` | Linux 内部安全更新器，仅供高级排错或故障恢复 |
 | `valid_tokens.txt` | ipinfo.io API Token 列表（每行一个，用于 IP 地区校准） |
 
 ---
@@ -97,17 +97,17 @@
 ### 通用前置步骤
 
 1. **获取项目文件**  
-   - **方式一（推荐）**：点击本仓库页面的绿色 `Code` 按钮 → `Download ZIP`，下载压缩包后解压到本地。  
-   - **方式二（熟悉 Git 的用户）**：使用命令行克隆仓库：
+   - **方式一（推荐，可自动更新）**：使用命令行克隆仓库：
      ```bash
      git clone https://github.com/你的用户名/仓库名.git
      cd 仓库名
      ```
+   - **方式二（无需 Git 操作）**：点击本仓库页面的绿色 `Code` 按钮 → `Download ZIP`，下载并解压；setup 会正常部署，但会跳过自动更新。
 
 2. **准备各项令牌（见下一节）**
    根据需求获取 GitHub Token、Cloudflare API Token 和 WxPusher 凭证；首次运行 setup 生成 `config.json` 后再填入。
 
-> 💡 首次运行部署脚本时只会从 `config.example.json` 创建本机 `config.json`（已有文件绝不覆盖）、确认本项目没有残留定时任务，然后立即退出。请先编辑配置，再运行一次 setup；第二次才会创建项目专用 `.venv`、安装依赖并应用定时设置，最后询问是否立即测试运行。依赖安装优先使用清华 PyPI 镜像，失败时回退官方源。
+> 💡 **以后安装、更新和应用配置都只需运行 setup。** Git 克隆的项目每次运行 setup 时会先通过内部更新器检查 `origin/main`，仅接受安全的快进更新，并保留本机 `config.json` 与 `ip.local.txt`。首次没有 `config.json` 时，setup 会使用更新后的模板创建配置并立即退出；请先编辑配置，再运行一次 setup，第二次才会创建项目专用 `.venv`、安装依赖、应用定时设置并询问是否立即测试。ZIP 解压的项目没有 Git 元数据，会跳过自动更新并继续部署；网络检查失败时继续使用本地版本，检测到本地代码改动、分支分叉等安全冲突时则停止更新并给出处理提示。依赖安装优先使用清华 PyPI 镜像，失败时回退官方源。
 
 ---
 
@@ -229,23 +229,35 @@ nano config.json
 
 ---
 
-## 🔄 安全更新本地项目
+## 🔄 日常更新与故障恢复
 
-需要从 GitHub 拉取最新版，同时保留本机 `config.json` 和 `ip.local.txt` 时，可运行：
+日常无需单独运行更新脚本，继续使用与部署相同的 setup 入口即可：
 
-| 平台 | 命令 |
+| 平台 | 唯一日常命令 |
+| :--- | :--- |
+| Windows PowerShell | `.\setup.ps1` |
+| Linux | `./setup.sh` |
+
+Git 克隆的项目会由 setup 自动调用内部更新器：备份并保留本机 `config.json` 和 `ip.local.txt`，只接受 `origin/main` 的快进更新，再将本机配置值合并到最新版模板。合并时会保留新版仍支持字段的已有取值，仅为缺失的新字段采用新版默认值，因此更新不会擅自启停你已经配置的功能；已经移除的废弃字段不会继续写回。升级旧版本时，旧的本机 `ip.txt` 会迁移为 `ip.local.txt`，远端汇总 `ip.txt` 恢复为仓库版本。ZIP 解压的项目会跳过在线更新，不影响本地部署。
+
+如果 GitHub 暂时无法访问，setup 会提示并继续使用当前本地版本；若检测到本地代码改动、当前分支不符或本地与远端分叉，为避免覆盖代码，安全更新会停止并显示原因。请先按提示处理，不要使用 `git reset --hard`。
+
+<details>
+<summary>高级排错：直接运行内部更新器</summary>
+
+仅当 setup 明确提示需要故障恢复时，才直接运行：
+
+| 平台 | 高级恢复命令 |
 | :--- | :--- |
 | Windows PowerShell | `.\update_fork.ps1` |
 | Linux | `chmod +x update_fork.sh && ./update_fork.sh` |
 
-脚本会备份本机配置和优选结果，只允许 `origin/main` 快进更新，并把本机配置值合并到最新版模板。升级旧版本时，旧的本机 `ip.txt` 会迁移为 `ip.local.txt`，远端汇总 `ip.txt` 恢复为仓库版本。若存在其他未提交代码，或本地与远端已经分叉，脚本会停止并保留备份。
+内部更新器不会执行 `git reset --hard`，也不会把 GitHub Token 写入远程 URL。从仍跟踪 `config.json` 的很旧版本升级时，它会先备份本机 Token，再完成配置私有化迁移。如果首次迁移在新版脚本刚拉取后提示 `config.json 合并失败`，配置会从备份恢复；重新运行 setup 即可使用新版更新逻辑继续处理。
 
-> [!WARNING]
-> 从仍跟踪 `config.json` 的旧版本首次升级时，请优先运行 `update_fork.ps1` / `update_fork.sh`，不要直接 `git pull`。更新脚本会先备份本机 Token，再完成配置私有化迁移。
-> 如果旧版更新脚本在首次拉取后提示 `config.json 合并失败`，配置已从备份恢复且新版脚本已经下载；直接再次运行同一更新命令即可完成迁移。
+</details>
 
 > [!IMPORTANT]
-> 更新脚本不会执行 `git reset --hard`，不会把 GitHub Token 写入远程 URL，也不会处理无关历史。GitHub 节点上报始终通过 `github_sync.py` 和 Contents API 完成。
+> GitHub 节点上报始终通过 `github_sync.py` 和 Contents API 完成，与源码安全更新相互独立。
 
 ---
 
@@ -363,8 +375,8 @@ nano config.json
 | :--- | :--- | :--- | :--- |
 | `FILTER_IPV6_AVAILABILITY` | `boolean` | `true` | **仅作用于 DNS**：是否过滤落地仅 IPv6 的节点（`ipv6_only`） |
 | `FILTER_BLOCKED_COUNTRIES_ENABLED` | `boolean` | `true` | DNS 更新时是否启用黑名单过滤 |
-| `BLOCKED_COUNTRIES` | `array` | `BD, BI, BY, CD, CF, CN, CU, DE, ET, HK,`<br>`IR, KP, LY, MO, NG, NL, PK, RU, SD, SO,`<br>`SY, TH, TW, UA, VE, VN, YE, ZW` | DNS 更新时需要剔除的国家代码列表（共 28 个） |
-| `DNS_IP_RISK_FILTER_ENABLED` | `boolean` | `false` | 是否启用 IP 风险等级过滤 |
+| `BLOCKED_COUNTRIES` | `array` | `BD, BI, BY, CD, CF, CN, CU, ET, IR, KP,`<br>`LY, NG, PK, SD, SO, SY, VE, YE, ZW` | DNS 更新时需要剔除的国家代码列表（共 19 个） |
+| `DNS_IP_RISK_FILTER_ENABLED` | `boolean` | `true` | 是否启用 IP 风险等级过滤 |
 | `DNS_IP_RISK_MAX_LEVEL` | `string` | `高风险` | 允许的最高风险等级（可选：极度纯净、纯净、轻微风险、高风险、极度危险） |
 
 > **说明**：  
@@ -392,7 +404,7 @@ nano config.json
 
 | 参数 | 类型 | 默认值 | 说明 |
 | :--- | :--- | :--- | :--- |
-| `CF_ENABLED` | `boolean` | `true` | 是否启用 DNS 自动更新 |
+| `CF_ENABLED` | `boolean` | `false` | 是否启用 DNS 自动更新（默认关闭，填写凭证后再开启） |
 | `CF_API_TOKEN` | `string` | `"your_CF_API_TOKEN"` | Cloudflare API 令牌（Zone:DNS:Edit 权限） |
 | `CF_ZONE_ID` | `string` | `"your_CF_ZONE_ID"` | 域名区域 ID |
 | `CF_DNS_RECORD_NAME` | `string` | `"your_CF_DNS_RECORD_NAME"` | 完整子域名 |
@@ -402,7 +414,7 @@ nano config.json
 | `CF_DNS_READ_TIMEOUT` | `int` | `10` | Cloudflare API 读取超时（秒） |
 | `DNS_RECORD_TYPE` | `string` | `"TXT"` | DNS 记录类型（A 或 TXT） |
 
-> 💡 若不需要 DNS 更新，将 `CF_ENABLED` 设为 `false` 即可。
+> 💡 DNS 更新默认关闭；填写 Cloudflare 凭证并确认记录名称后，再将 `CF_ENABLED` 设为 `true`。
 
 ### 节点数据源与获取配置
 
@@ -608,7 +620,7 @@ nano config.json
 | `CF_TTL` | DNS 记录 TTL（秒），免费套餐最低 120 |
 | `CF_PROXIED` | 是否启用 Cloudflare CDN 代理（橙色云朵），通常设为 `false` |
 
-> 💡 若不需要 DNS 更新功能，将 `CF_ENABLED` 设为 `false` 即可。
+> 💡 DNS 更新默认关闭；只有完成上述凭证配置后，才应将 `CF_ENABLED` 设为 `true`。
 
 ### 第三步：测试运行
 
@@ -889,7 +901,7 @@ nano config.json
 <summary>🔒 隐私与其他</summary>
 
 18. **隐私保护**  
-   仓库的 `.gitignore` 会忽略 `config.json`、`valid_tokens.txt`、`ip.local.txt` 和运行缓存/日志；部署脚本也会补齐这些规则。`git_sync.ps1` 与 `git_sync.sh` 是不含密钥的程序入口，会正常纳入版本控制。
+   仓库的 `.gitignore` 会忽略 `config.json`、`valid_tokens.txt`、`ip.local.txt` 和运行缓存/日志；Git 克隆版的部署脚本还会把缺失规则补入本机 `.git/info/exclude`，不会因此修改受跟踪文件。`git_sync.ps1` 与 `git_sync.sh` 是不含密钥的程序入口，会正常纳入版本控制。
 
 </details>
 

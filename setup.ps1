@@ -1,6 +1,11 @@
 ﻿# setup.ps1 - Cloudflare IP 优选工具 Windows 一键部署脚本
 # 用法：在项目目录执行 .\setup.ps1。脚本会按需请求管理员权限。
 
+param(
+    # 仅供脚本自更新和提权重启时使用，普通用户无需传入。
+    [switch]$SkipAutoUpdate
+)
+
 $ErrorActionPreference = "Stop"
 try { $Host.UI.RawUI.WindowTitle = "Cloudflare IP 优选部署" } catch { }
 
@@ -48,6 +53,8 @@ function Invoke-NativeCommand {
     # 暂时改为 Continue，并始终以真实退出码判断成功与否。
     $oldPreference = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
+    $output = @()
+    $exitCode = -1
     try {
         $output = & $FilePath @Arguments 2>&1
         $exitCode = $LASTEXITCODE
@@ -65,6 +72,11 @@ function Invoke-NativeCommand {
 }
 
 function Get-BootstrapPython {
+    $projectVenvPython = Join-Path $script:ScriptDir ".venv\Scripts\python.exe"
+    if (Test-Path -LiteralPath $projectVenvPython -PathType Leaf) {
+        return @{ Path = $projectVenvPython; Prefix = @() }
+    }
+
     $activeVenvPython = if ($env:VIRTUAL_ENV) {
         Join-Path $env:VIRTUAL_ENV "Scripts\python.exe"
     } else { $null }
@@ -72,11 +84,13 @@ function Get-BootstrapPython {
         return @{ Path = $activeVenvPython; Prefix = @() }
     }
 
-    $python = Get-Command python.exe -CommandType Application -ErrorAction SilentlyContinue
+    $python = Get-Command python.exe -CommandType Application -ErrorAction SilentlyContinue |
+        Select-Object -First 1
     if ($python) {
         return @{ Path = $python.Source; Prefix = @() }
     }
-    $pyLauncher = Get-Command py.exe -CommandType Application -ErrorAction SilentlyContinue
+    $pyLauncher = Get-Command py.exe -CommandType Application -ErrorAction SilentlyContinue |
+        Select-Object -First 1
     if ($pyLauncher) {
         return @{ Path = $pyLauncher.Source; Prefix = @("-3") }
     }
@@ -116,6 +130,10 @@ function Install-PythonPackages {
 
 function Add-GitIgnoreEntries {
     param([string]$Path, [string[]]$Entries)
+    $parent = Split-Path -Parent $Path
+    if ($parent -and -not (Test-Path -LiteralPath $parent -PathType Container)) {
+        New-Item -ItemType Directory -Path $parent -Force | Out-Null
+    }
     if (-not (Test-Path $Path)) {
         New-Item -ItemType File -Path $Path -Force | Out-Null
     }
@@ -126,6 +144,42 @@ function Add-GitIgnoreEntries {
             $existing += $entry
         }
     }
+}
+
+function Get-RuntimeIgnorePath {
+    $fallback = Join-Path $script:ScriptDir ".gitignore"
+    $git = Get-Command git.exe -CommandType Application -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if (-not $git) { return $fallback }
+
+    $oldPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    $rootOutput = @()
+    $excludeOutput = @()
+    $gitExitCode = -1
+    try {
+        $rootOutput = & $git.Source "-C" $script:ScriptDir "rev-parse" "--show-toplevel" 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            $excludeOutput = & $git.Source "-C" $script:ScriptDir "rev-parse" "--git-path" "info/exclude" 2>$null
+            $gitExitCode = $LASTEXITCODE
+        } else {
+            $gitExitCode = $LASTEXITCODE
+        }
+    } finally {
+        $ErrorActionPreference = $oldPreference
+    }
+    if ($gitExitCode -ne 0) { return $fallback }
+
+    $root = (($rootOutput | ForEach-Object { $_.ToString() }) -join "").Trim()
+    $exclude = (($excludeOutput | ForEach-Object { $_.ToString() }) -join "").Trim()
+    if (-not $root -or -not $exclude -or
+            ([IO.Path]::GetFullPath($root) -ne [IO.Path]::GetFullPath($script:ScriptDir))) {
+        return $fallback
+    }
+    if (-not [IO.Path]::IsPathRooted($exclude)) {
+        $exclude = Join-Path $script:ScriptDir $exclude
+    }
+    return [IO.Path]::GetFullPath($exclude)
 }
 
 function Test-TaskNotFoundException {
@@ -164,6 +218,113 @@ function Remove-ProjectScheduledTask {
     throw "计划任务 '$Name' 删除后仍然存在。"
 }
 
+function Get-RepositoryHead {
+    param([Parameter(Mandatory = $true)][string]$GitPath)
+
+    $oldPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    $output = @()
+    $exitCode = -1
+    try {
+        $output = & $GitPath "rev-parse" "--verify" "HEAD" 2>$null
+        $exitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $oldPreference
+    }
+    if ($exitCode -ne 0) { return $null }
+    return (($output | ForEach-Object { $_.ToString() }) -join "").Trim()
+}
+
+function Get-RepositoryRoot {
+    param([Parameter(Mandatory = $true)][string]$GitPath)
+
+    $oldPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    $output = @()
+    $exitCode = -1
+    try {
+        $output = & $GitPath "rev-parse" "--show-toplevel" 2>$null
+        $exitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $oldPreference
+    }
+    if ($exitCode -ne 0) { return $null }
+    return (($output | ForEach-Object { $_.ToString() }) -join "").Trim()
+}
+
+function Get-PowerShellExecutable {
+    $executableName = if ($PSVersionTable.PSEdition -eq "Core") { "pwsh.exe" } else { "powershell.exe" }
+    $candidate = Join-Path $PSHOME $executableName
+    if (Test-Path -LiteralPath $candidate -PathType Leaf) { return $candidate }
+    return (Get-Process -Id $PID).Path
+}
+
+function Restart-UpdatedSetup {
+    param([switch]$RetryAutoUpdate)
+
+    $powerShellPath = Get-PowerShellExecutable
+    Write-Host "✅ 已获取新版代码，正在重新加载最新 setup.ps1..." -ForegroundColor Green
+    $restartArguments = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $PSCommandPath)
+    if (-not $RetryAutoUpdate) { $restartArguments += "-SkipAutoUpdate" }
+    & $powerShellPath @restartArguments
+    $childExitCode = $LASTEXITCODE
+    exit $childExitCode
+}
+
+Set-Location $ScriptDir
+
+# ---------- 首先安全更新代码，普通用户始终只需运行 setup.ps1 ----------
+if (-not $SkipAutoUpdate) {
+    Write-Host "正在检查 GitHub 上的项目更新..." -ForegroundColor Cyan
+    $updateScriptPath = Join-Path $ScriptDir "update_fork.ps1"
+    $gitForUpdate = Get-Command git.exe -CommandType Application -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    $repositoryRoot = if ($gitForUpdate) { Get-RepositoryRoot -GitPath $gitForUpdate.Source } else { $null }
+    $configExistsForUpdate = Test-Path -LiteralPath (Join-Path $ScriptDir "config.json") -PathType Leaf
+    $bootstrapForUpdate = if ($configExistsForUpdate) { Get-BootstrapPython } else { $null }
+
+    if (-not $gitForUpdate) {
+        Write-Host "⚠️ 未检测到 Git，本次跳过自动更新；完成部署后下次运行会再次尝试。" -ForegroundColor Yellow
+    } elseif (-not $repositoryRoot -or
+            ([IO.Path]::GetFullPath($repositoryRoot) -ne [IO.Path]::GetFullPath($ScriptDir))) {
+        Write-Host "⚠️ 当前目录不是独立 Git 仓库根目录（可能是 ZIP 解压版），已跳过自动更新。" -ForegroundColor Yellow
+    } elseif (-not (Test-Path -LiteralPath $updateScriptPath -PathType Leaf)) {
+        Write-Host "⚠️ 未找到 update_fork.ps1，已跳过自动更新并继续本地部署。" -ForegroundColor Yellow
+    } elseif ($configExistsForUpdate -and -not $bootstrapForUpdate) {
+        Write-Host "⚠️ 现有部署暂未检测到 Python，为了先安全校验旧配置，本次跳过更新。" -ForegroundColor Yellow
+        Write-Host "   setup 安装 Python 后，下次运行会自动更新。" -ForegroundColor Yellow
+    } else {
+        $headBeforeUpdate = Get-RepositoryHead -GitPath $gitForUpdate.Source
+        $updateFailure = $null
+        try {
+            & $updateScriptPath -Branch "main" -NonInteractive -PreserveMissingConfig
+        } catch {
+            $updateFailure = $_
+        }
+        $headAfterUpdate = Get-RepositoryHead -GitPath $gitForUpdate.Source
+
+        if ($headBeforeUpdate -and $headAfterUpdate -and $headAfterUpdate -ne $headBeforeUpdate) {
+            if ($updateFailure) {
+                Restart-UpdatedSetup -RetryAutoUpdate
+            } else {
+                Restart-UpdatedSetup
+            }
+        }
+        if ($updateFailure) {
+            $failureKind = $updateFailure.Exception.Data["BestCfCdnFailureKind"]
+            if ($failureKind -eq "Network") {
+                Write-Host ""
+                Write-Host "⚠️ GitHub 暂时不可达，仓库 HEAD 未改变。" -ForegroundColor Yellow
+                Write-Host "   将继续使用当前本地版本完成部署。" -ForegroundColor Yellow
+            } else {
+                Write-Host "❌ 自动更新未通过安全检查，setup 已停止。" -ForegroundColor Red
+                throw $updateFailure
+            }
+        }
+    }
+    Write-Host ""
+}
+
 if (-not (Test-Administrator)) {
     Write-Host "========================================" -ForegroundColor Cyan
     Write-Host " Cloudflare IP 优选工具 - 智能部署" -ForegroundColor Cyan
@@ -172,10 +333,11 @@ if (-not (Test-Administrator)) {
     Write-Host "创建 SYSTEM 计划任务需要管理员权限。" -ForegroundColor Yellow
     $choice = Read-Host "是否以管理员身份重新启动脚本？(Y/N)"
     if ($choice -match '^[Yy]$') {
-        $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`""
+        $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -SkipAutoUpdate"
         try {
-            Start-Process PowerShell -Verb RunAs -ArgumentList $arguments
-            exit 0
+            $powerShellPath = Get-PowerShellExecutable
+            $elevated = Start-Process -FilePath $powerShellPath -Verb RunAs -ArgumentList $arguments -Wait -PassThru
+            exit $elevated.ExitCode
         } catch {
             Write-Host "❌ 无法自动提权：$_" -ForegroundColor Red
         }
@@ -208,7 +370,7 @@ if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) {
     } catch {
         throw "无法确认旧计划任务已停止，尚未创建 config.json：$_"
     }
-    Add-GitIgnoreEntries -Path (Join-Path $ScriptDir ".gitignore") -Entries @("config.json")
+    Add-GitIgnoreEntries -Path (Get-RuntimeIgnorePath) -Entries @("config.json")
     Copy-Item -LiteralPath $configTemplatePath -Destination $configPath
     Write-Host "✅ 已从 config.example.json 创建本机 config.json（Git 将忽略此文件）" -ForegroundColor Green
     Write-Host "首次部署到此暂停：请先编辑 config.json，再次运行 .\setup.ps1 以安装依赖并应用定时设置。" -ForegroundColor Yellow
@@ -221,7 +383,8 @@ Write-Host "[1/5] 检查 Python 与项目虚拟环境..." -ForegroundColor Green
 $bootstrap = Get-BootstrapPython
 if (-not $bootstrap) {
     Write-Host "未检测到 Python，正在通过 winget 安装 Python 3..." -ForegroundColor Yellow
-    $winget = Get-Command winget.exe -CommandType Application -ErrorAction SilentlyContinue
+    $winget = Get-Command winget.exe -CommandType Application -ErrorAction SilentlyContinue |
+        Select-Object -First 1
     if (-not $winget) {
         throw "未找到 winget，请先从 https://www.python.org/downloads/ 安装 Python 3。"
     }
@@ -249,32 +412,38 @@ Write-Host "✅ 项目 Python: $PythonExePath" -ForegroundColor Gray
 
 # ---------- 2. 检测 Git ----------
 Write-Host "[2/5] 检查 Git..." -ForegroundColor Green
-$git = Get-Command git.exe -CommandType Application -ErrorAction SilentlyContinue
+$git = Get-Command git.exe -CommandType Application -ErrorAction SilentlyContinue |
+    Select-Object -First 1
 if (-not $git) {
     Write-Host "未检测到 Git，正在通过 winget 安装..." -ForegroundColor Yellow
-    $winget = Get-Command winget.exe -CommandType Application -ErrorAction SilentlyContinue
+    $winget = Get-Command winget.exe -CommandType Application -ErrorAction SilentlyContinue |
+        Select-Object -First 1
     if (-not $winget) { throw "未找到 winget，请手动安装 Git。" }
     $null = Invoke-NativeCommand -FilePath $winget.Source -Arguments @(
         "install", "Git.Git", "--accept-package-agreements", "--accept-source-agreements"
     )
     Refresh-EnvPath
-    $git = Get-Command git.exe -CommandType Application -ErrorAction SilentlyContinue
+    $git = Get-Command git.exe -CommandType Application -ErrorAction SilentlyContinue |
+        Select-Object -First 1
 }
 if (-not $git) { throw "Git 安装失败或尚未加入 PATH。" }
 Write-Host "✅ Git: $($git.Source)" -ForegroundColor Gray
 
 # ---------- 3. 检测真正的 curl.exe，避免误识别 PowerShell 别名 ----------
 Write-Host "[3/5] 检查 curl..." -ForegroundColor Green
-$curl = Get-Command curl.exe -CommandType Application -ErrorAction SilentlyContinue
+$curl = Get-Command curl.exe -CommandType Application -ErrorAction SilentlyContinue |
+    Select-Object -First 1
 if (-not $curl) {
     Write-Host "未检测到 curl.exe，正在通过 winget 安装..." -ForegroundColor Yellow
-    $winget = Get-Command winget.exe -CommandType Application -ErrorAction SilentlyContinue
+    $winget = Get-Command winget.exe -CommandType Application -ErrorAction SilentlyContinue |
+        Select-Object -First 1
     if (-not $winget) { throw "未找到 winget，请手动安装 curl。" }
     $null = Invoke-NativeCommand -FilePath $winget.Source -Arguments @(
         "install", "cURL.cURL", "--accept-package-agreements", "--accept-source-agreements"
     )
     Refresh-EnvPath
-    $curl = Get-Command curl.exe -CommandType Application -ErrorAction SilentlyContinue
+    $curl = Get-Command curl.exe -CommandType Application -ErrorAction SilentlyContinue |
+        Select-Object -First 1
 }
 if (-not $curl) { throw "curl.exe 安装失败或尚未加入 PATH。" }
 Write-Host "✅ curl: $($curl.Source)" -ForegroundColor Gray
@@ -319,7 +488,7 @@ $requiredFilesMissing = (-not (Test-Path $PythonScriptPath)) -or (-not (Test-Pat
 if ($requiredFilesMissing) {
     throw "未找到 scheduled_run.py、main.py 或 proxy_scoring.py。"
 }
-Add-GitIgnoreEntries -Path (Join-Path $ScriptDir ".gitignore") -Entries @(
+Add-GitIgnoreEntries -Path (Get-RuntimeIgnorePath) -Entries @(
     ".venv/", "__pycache__/", "*.py[cod]", ".cfnb_schedule.lock", "cron.log",
     "config.json", "ip.local.txt", "valid_tokens.txt", "ipinfo_cache.txt", "cfnb.log"
 )

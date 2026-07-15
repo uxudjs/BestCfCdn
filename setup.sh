@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # setup.sh - Cloudflare IP 优选工具 Linux 一键部署脚本
-# 推荐用法：chmod +x setup.sh && ./setup.sh
+# 推荐用法：bash setup.sh（安装、更新、配置均使用此入口）
 # 脚本仅在安装系统软件包时调用 sudo，避免生成 root 所有的项目文件。
 
 set -Eeuo pipefail
@@ -37,7 +37,7 @@ command_exists() {
 
 run_as_target() {
     if [[ ${EUID} -eq 0 && $TARGET_USER != root ]]; then
-        sudo -u "$TARGET_USER" -- "$@"
+        sudo -H -u "$TARGET_USER" -- "$@"
     else
         "$@"
     fi
@@ -132,6 +132,18 @@ pip_install() {
 append_gitignore_entry() {
     local entry=$1
     local path="$SCRIPT_DIR/.gitignore"
+    local git_root="" git_exclude=""
+    if command_exists git; then
+        git_root=$(run_as_target git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || true)
+        if [[ $git_root == "$SCRIPT_DIR" ]]; then
+            git_exclude=$(run_as_target git -C "$SCRIPT_DIR" rev-parse --git-path info/exclude 2>/dev/null || true)
+            if [[ -n $git_exclude ]]; then
+                [[ $git_exclude == /* ]] || git_exclude="$SCRIPT_DIR/$git_exclude"
+                path=$git_exclude
+            fi
+        fi
+    fi
+    run_as_target mkdir -p "$(dirname "$path")"
     run_as_target touch "$path"
     if ! grep -Fxq "$entry" "$path"; then
         printf '%s\n' "$entry" | if [[ ${EUID} -eq 0 && $TARGET_USER != root ]]; then
@@ -188,22 +200,104 @@ remove_project_cron_entries() {
 
 CONFIG_PATH="$SCRIPT_DIR/config.json"
 CONFIG_TEMPLATE_PATH="$SCRIPT_DIR/config.example.json"
+CONFIG_EXISTED_AT_START=false
+[[ -f $CONFIG_PATH ]] && CONFIG_EXISTED_AT_START=true
+
+# setup.sh 是用户唯一入口：在读取/生成配置前先尝试安全快进更新。
+# 更新若替换了 setup.sh 自身，则只重新加载一次新版脚本，避免新旧逻辑混用。
+SETUP_REEXEC_DEPTH="${BESTCFCDN_SETUP_REEXEC_DEPTH:-0}"
+SETUP_RETRY_AUTO_UPDATE="${BESTCFCDN_SETUP_RETRY_AUTO_UPDATE:-0}"
+[[ $SETUP_REEXEC_DEPTH =~ ^[0-9]+$ ]] || SETUP_REEXEC_DEPTH=0
+if [[ $SETUP_REEXEC_DEPTH == 0 || $SETUP_RETRY_AUTO_UPDATE == 1 ]]; then
+    UPDATE_HELPER="$SCRIPT_DIR/update_fork.sh"
+    PROJECT_GIT_ROOT=""
+    if command_exists git && [[ -f $UPDATE_HELPER ]]; then
+        PROJECT_GIT_ROOT="$(run_as_target git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
+    fi
+    if [[ $PROJECT_GIT_ROOT == "$SCRIPT_DIR" ]]; then
+        CAN_AUTO_UPDATE=true
+        if [[ $CONFIG_EXISTED_AT_START == true \
+            && ! -x $SCRIPT_DIR/.venv/bin/python ]] \
+            && ! command_exists python3; then
+            CAN_AUTO_UPDATE=false
+            echo -e "${YELLOW}⚠️ 已有 config.json，但尚无 Python；本次先使用当前版本完成部署，下次运行 setup.sh 时再自动更新。${NC}"
+        fi
+
+        if [[ $CAN_AUTO_UPDATE == true ]]; then
+            BEFORE_UPDATE_HEAD="$(run_as_target git -C "$SCRIPT_DIR" rev-parse HEAD)"
+            UPDATE_STATUS=0
+            if run_as_target bash "$UPDATE_HELPER" \
+                --non-interactive --preserve-missing-config; then
+                UPDATE_STATUS=0
+            else
+                UPDATE_STATUS=$?
+            fi
+            AFTER_UPDATE_HEAD="$(run_as_target git -C "$SCRIPT_DIR" rev-parse HEAD 2>/dev/null || true)"
+
+            if [[ -n $AFTER_UPDATE_HEAD && $AFTER_UPDATE_HEAD != "$BEFORE_UPDATE_HEAD" ]]; then
+                NEXT_REEXEC_DEPTH=$((SETUP_REEXEC_DEPTH + 1))
+                if (( NEXT_REEXEC_DEPTH > 2 )); then
+                    echo -e "${RED}❌ 自动更新连续改变代码但未能稳定完成，已停止；本机配置仍由备份保护。${NC}" >&2
+                    exit 2
+                fi
+                if [[ $UPDATE_STATUS -ne 0 ]]; then
+                    echo -e "${YELLOW}⚠️ 更新已推进到新版，但后续步骤未完整完成；将由新版 setup.sh 接管并复核。${NC}"
+                    exec env BESTCFCDN_SETUP_REEXEC_DEPTH="$NEXT_REEXEC_DEPTH" \
+                        BESTCFCDN_SETUP_RETRY_AUTO_UPDATE=1 bash "$SCRIPT_DIR/setup.sh" "$@"
+                else
+                    echo -e "${GREEN}✅ 已获取新版，正在重新加载最新 setup.sh...${NC}"
+                    exec env BESTCFCDN_SETUP_REEXEC_DEPTH="$NEXT_REEXEC_DEPTH" \
+                        BESTCFCDN_SETUP_RETRY_AUTO_UPDATE=0 bash "$SCRIPT_DIR/setup.sh" "$@"
+                fi
+            fi
+
+            case "$UPDATE_STATUS" in
+                0) ;;
+                11)
+                    echo -e "${YELLOW}⚠️ GitHub 暂时不可达，继续使用当前本地版本部署。${NC}"
+                    ;;
+                12)
+                    echo -e "${YELLOW}⚠️ 当前缺少用于合并旧配置的 Python，继续使用当前本地版本部署。${NC}"
+                    ;;
+                *)
+                    echo -e "${RED}❌ 自动更新未通过安全检查，setup 已停止，且没有覆盖本机配置。${NC}" >&2
+                    exit "$UPDATE_STATUS"
+                    ;;
+            esac
+        fi
+    else
+        echo -e "${YELLOW}ℹ️ 当前不是可更新的 Git 仓库（例如 ZIP 安装），跳过在线更新。${NC}"
+    fi
+else
+    echo -e "${GREEN}✅ 已切换到本次获取的最新版 setup.sh${NC}"
+fi
+
 if [[ -e $CONFIG_PATH && ! -f $CONFIG_PATH ]]; then
     echo -e "${RED}❌ config.json 已存在但不是普通文件。${NC}" >&2
     exit 1
 fi
-if [[ ! -f $CONFIG_PATH ]]; then
+if [[ -f $CONFIG_PATH ]]; then
+    run_as_target chmod 600 "$CONFIG_PATH"
+fi
+if [[ $CONFIG_EXISTED_AT_START != true ]]; then
     if [[ ! -f $CONFIG_TEMPLATE_PATH ]]; then
         echo -e "${RED}❌ 未找到 config.example.json，无法创建本机配置。${NC}" >&2
         exit 1
     fi
     remove_project_cron_entries || exit 1
     append_gitignore_entry "config.json"
-    run_as_target cp "$CONFIG_TEMPLATE_PATH" "$CONFIG_PATH"
+    if [[ ! -f $CONFIG_PATH ]]; then
+        run_as_target cp "$CONFIG_TEMPLATE_PATH" "$CONFIG_PATH"
+    fi
+    run_as_target chmod 600 "$CONFIG_PATH"
     echo -e "${GREEN}✅ 已从 config.example.json 创建本机 config.json（Git 将忽略此文件）${NC}"
     echo -e "${YELLOW}首次部署到此暂停：请先编辑 config.json，再次运行 ./setup.sh 以安装依赖并应用定时设置。${NC}"
     echo -e "${YELLOW}本次不会安装依赖、注册定时任务或运行 main.py。${NC}"
     exit 0
+fi
+if [[ ! -f $CONFIG_PATH ]]; then
+    echo -e "${RED}❌ 更新后未能恢复已有的 config.json，已停止部署。${NC}" >&2
+    exit 1
 fi
 
 # ---------- 1. 系统依赖 ----------
