@@ -70,7 +70,7 @@
     "_comment_NOTIFY_CONNECT_TIMEOUT": "微信通知 API 连接超时（秒）",
 
     "_comment_cf_dns": "Cloudflare DNS 批量更新配置",
-    "CF_ENABLED": true,
+    "CF_ENABLED": false,
     "CF_API_TOKEN": "your_CF_API_TOKEN",
     "CF_ZONE_ID": "your_CF_ZONE_ID",
     "CF_DNS_RECORD_NAME": "your_CF_DNS_RECORD_NAME",
@@ -195,13 +195,13 @@
     "_comment_FILTER_BLOCKED_COUNTRIES_ENABLED": "【仅DNS】黑名单开关（true=屏蔽下方 BLOCKED_COUNTRIES 中的国家）",
 
     "BLOCKED_COUNTRIES": [
-        "BD", "BI", "BY", "CD", "CF", "CN", "CU", "DE", "ET", "HK",
-        "IR", "KP", "LY", "MO", "NG", "NL", "PK", "RU", "SD", "SO",
-        "SY", "TH", "TW", "UA", "VE", "VN", "YE", "ZW"
+        "BD", "BI", "BY", "CD", "CF", "CN", "CU", "ET",
+        "IR", "KP", "LY", "NG", "PK", "SD", "SO", "SY",
+        "VE", "YE", "ZW"
     ],
     "_comment_BLOCKED_COUNTRIES": "【仅DNS】黑名单国家代码列表（DNS 更新时剔除这些国家的节点）",
 
-    "DNS_IP_RISK_FILTER_ENABLED": false,
+    "DNS_IP_RISK_FILTER_ENABLED": true,
     "_comment_DNS_IP_RISK_FILTER_ENABLED": "【仅DNS】是否启用 IP 风险等级过滤，开关打开时仅保留风险等级不高于DNS_IP_RISK_MAX_LEVEL 的 IP",
 
     "DNS_IP_RISK_MAX_LEVEL": "高风险",
