@@ -1,907 +1,433 @@
-# Cloudflare IP 优选工具
+# BestCfCdn
 
-[![GitHub stars](https://img.shields.io/github/stars/xinyitang3/cfnb?style=social)](https://github.com/xinyitang3/cfnb/stargazers)
-[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux-blue)]()
-[![License](https://img.shields.io/badge/License-MIT-green)]()
-[![Last Commit](https://img.shields.io/github/last-commit/xinyitang3/cfnb?label=Last%20Commit)](https://github.com/xinyitang3/cfnb/commits)
-[![Repo Size](https://img.shields.io/github/repo-size/xinyitang3/cfnb?label=Repo%20Size)](https://github.com/xinyitang3/cfnb)
-[![Telegram](https://img.shields.io/badge/Telegram-@MiaChatChannel-26A5E4?logo=telegram)](https://t.me/MiaChatChannel)
+### 🌐 选择语言 | 選擇語言 | Choose Language
 
-> ⭐ **如果觉得好用，点个 Star 支持一下～**
-
-这是一个全自动的 **Cloudflare CDN 节点优选工具**。它通过 **TCP 延迟筛选** + **IP 可用性二次检测** + **HTTP 延迟及抖动检测** + **真实带宽测速** 多重机制，从多个公开数据源中聚合节点，自动识别并解析任意格式（标准代码、中文名、emoji国旗、JSON等），筛选出当前网络环境下速度最快、延迟最低、抖动最小的 Cloudflare IP，并支持**自动更新至 Cloudflare DNS** 以及**同步至 GitHub 仓库**，同时支持微信实时通知。
-
-> [!IMPORTANT]
-> **跨平台支持**：本工具同时兼容 **Windows** 和 **Linux** 操作系统。
-> - `github_sync.py` 通过 GitHub Contents API 并发安全地合并多终端结果
-> - `git_sync.ps1` / `git_sync.sh` 保留为手动同步入口
+- [🇨🇳 简体中文](#-简体中文)
+- [🇹🇼 繁體中文](#-繁體中文)
+- [🇺🇸 English](#-english)
 
 ---
 
-### 📍 快速导航
-- 🚀 [我要部署](#-部署步骤)（Windows / Linux 命令对照）
-- 🔐 [我要获取 Token](#-获取必要令牌重要)（GitHub / Cloudflare / WxPusher 三合一教程）
-- ⚙️ [我要调整参数](#%EF%B8%8F-配置说明完整参数详解)
-- ☁️ [我要配置 Cloudflare DNS](#%EF%B8%8F-配置-cloudflare-dns-自动更新)
-- 📤 [我要配置 GitHub 同步](#-配置-github-自动同步)
-- 🔧 [Fork 后无法推送？一键修复](#-fork-后无法推送一键修复)
-- 🔗 [对接 EdgeTunnel 指南](#-%E5%AF%B9%E6%8E%A5-edgetunnel-20-%E6%8C%87%E5%8D%97)
-- ❓ [常见问题](#-常见问题)
+## 🇨🇳 简体中文
 
----
+面向 Cloudflare CDN 与 EdgeTunnel 代理场景的跨平台 IP 自动优选工具。它负责筛选和发布节点，本身不提供代理服务。
 
-## ✨ 功能特性
+### 主要功能
 
-| 模块 | 说明 |
-| :--- | :--- |
-| 🌐 **多模式筛选** | 全局最优 TopN / 分国家最优 TopN |
-| ⚡ **TCP 连接测试** | 多次并发探测并取中位数，可设成功率阈值 |
-| 🔍 **可用性二次检测** | API 验证代理能力 |
-| 🔍 **HTTP 延迟与抖动检测** | 多次探测 HTTP 响应，计算中位延迟与尾部抖动，过滤非 Cloudflare 节点 |
-| 📶 **真实带宽测速** | curl 下载测速，实测吞吐量 |
-| ⚖️ **代理体验评分 v2** | 带宽收益递减，HTTP 延迟优先，并综合抖动与 TCP 建连延迟 |
-| 🧩 **多源自适应聚合** | 支持多个数据源，自动识别并解析任意格式（标准代码、中文名、emoji国旗、JSON等），统一转换为标准格式 |
-| ⚙️ **前置过滤（按序执行）** | TCP 测试前按序：端口过滤 → 黑名单过滤 → 白名单过滤（均可开关） |
-| 🚫 **DNS 黑名单** | DNS 更新时剔除指定国家节点（**仅作用于 DNS 更新环节**） |
-| 🛡️ **IPv6 落地过滤** | 过滤落地仅 IPv6 的节点，保留 IPv4/双栈节点（**仅作用于 DNS 更新环节**） |
-| 🔍 **IP 风险等级过滤** | 仅允许低风险节点，高危自动回退（**仅作用于 DNS 更新环节**） |
-| 🗺️ **IP 地区校准** | 基于 ipinfo.io 异步并发查询，自动校正节点国家代码，结果缓存复用 |
-| 🔒 **强制直连模式** | 可配置开关，一键清除系统代理，确保所有测试流量走直连 |
-| ☁️ **Cloudflare DNS 更新** | 原子批量替换同名 A/TXT 记录 |
-| 📬 **微信实时通知** | 集成 WxPusher，异常/结果推送 |
-| 🔄 **峰谷定时运行** | 中国 CF CDN 忙时每 15 分钟，非忙时每 30 分钟 |
-| 🚀 **一键部署** | `setup.ps1` / `setup.sh` 自动安装依赖并配置 |
-| 📤 **多终端安全同步** | 每台终端只替换自己的 5 行，冲突时自动拉取并重新合并 |
-| 🔒 **隐私保护** | 仓库只跟踪配置模板；含 Token 的本机 `config.json` 默认被 Git 忽略 |
-| 🖥️ **跨平台兼容** | 同时支持 Windows 和 Linux |
-| 🔄 **安全更新** | 内置 `update_fork.ps1` / `update_fork.sh`，快进更新并保留本机配置 |
+- ✅ **多源节点聚合** - 自动读取多个公开数据源，并适配普通文本、JSON、中文地区名和 emoji 国旗等格式
+- ⚡ **分层质量检测** - 依次进行端口与地区预筛、TCP 成功率、代理可用性、HTTP 延迟、抖动和真实带宽测试
+- ⚖️ **代理体验评分** - 以 HTTP 响应体验为主，综合带宽、抖动和 TCP 建连延迟，避免只追求单项最高速度
+- 🇨🇳 **中国大陆默认配置** - 默认参数针对中国大陆跨境代理场景设置，并保留完整注释方便调整
+- 🏆 **最优节点输出** - 全局模式默认只保留 5 个综合体验最好的节点，也支持按国家筛选
+- 📤 **多终端安全同步** - 每台终端只替换远端 `ip.txt` 中属于自己的行，默认最多 5 行且不会覆盖其他终端结果
+- ⏱️ **峰谷自动调度** - 默认按北京时间 18:00–24:00 每 15 分钟运行，其余时段每 30 分钟运行，并防止任务重叠
+- 🖥️ **一键安装更新** - Windows 和 Linux 均以 setup 为日常唯一入口，自动创建 `.venv`、安装依赖、应用定时设置并安全更新
+- ☁️ **可选结果发布** - 支持更新 Cloudflare DNS、同步 GitHub 和发送 WxPusher 异常通知，三项功能可分别配置
+- 🔒 **本地配置保护** - 含 Token 的 `config.json` 和本机结果默认不会提交到 Git，更新时会合并并保留有效旧配置
 
----
+### 安装使用
 
-## 📦 文件清单
+#### 1. 获取项目
 
-| 文件 | 说明 |
-| :--- | :--- |
-| `main.py` | 核心优选程序（抓取、测试、筛选、更新、推送） |
-| `proxy_scoring.py` | 代理体验评分、质量门槛与最终名额选择 |
-| `config.example.json` | 无敏感信息的配置模板（仓库跟踪） |
-| `config.json` | 本机配置（部署脚本自动创建，Git 忽略） |
-| `github_sync.py` | GitHub 多终端并发安全合并程序 |
-| `scheduled_run.py` | 按中国 CF CDN 峰谷时段运行并防止任务重叠 |
-| `git_sync.ps1` | Windows 手动同步入口 |
-| `git_sync.sh` | Linux 手动同步入口 |
-| `setup.ps1` | Windows 分两阶段部署（先生成配置，复跑后安装依赖并配置计划任务） |
-| `setup.sh` | Linux 分两阶段部署（先生成配置，复跑后安装依赖并配置 cron） |
-| `requirements.txt` | Windows/Linux 共用的核心 Python 依赖清单 |
-| `ip.local.txt` | 本机最终优选节点（每次运行覆盖，Git 忽略） |
-| `ip.txt` | GitHub 多终端远端汇总文件（程序不会作为本机输入覆盖） |
-| `update_fork.ps1` | Windows 安全更新脚本（备份并保留本机配置） |
-| `update_fork.sh` | Linux 安全更新脚本（备份并保留本机配置） |
-| `valid_tokens.txt` | ipinfo.io API Token 列表（每行一个，用于 IP 地区校准） |
-
----
-
-## 🖥️ 系统要求
-
-- **操作系统**：Windows 10+ / Windows Server 2016+ 或 Linux（Ubuntu/Debian/CentOS 等）
-- **必备软件**：
-  - **Python 3.9+**
-  - **Git**
-  - **curl**（需在系统 PATH 中可用）
-- **Python 依赖**：`requests`, `aiohttp`, `brotlicffi`
-
----
-
-## 🚀 部署步骤
-
-### 通用前置步骤
-
-1. **获取项目文件**  
-   - **方式一（推荐）**：点击本仓库页面的绿色 `Code` 按钮 → `Download ZIP`，下载压缩包后解压到本地。  
-   - **方式二（熟悉 Git 的用户）**：使用命令行克隆仓库：
-     ```bash
-     git clone https://github.com/你的用户名/仓库名.git
-     cd 仓库名
-     ```
-
-2. **准备各项令牌（见下一节）**
-   根据需求获取 GitHub Token、Cloudflare API Token 和 WxPusher 凭证；首次运行 setup 生成 `config.json` 后再填入。
-
-> 💡 首次运行部署脚本时只会从 `config.example.json` 创建本机 `config.json`（已有文件绝不覆盖）、确认本项目没有残留定时任务，然后立即退出。请先编辑配置，再运行一次 setup；第二次才会创建项目专用 `.venv`、安装依赖并应用定时设置，最后询问是否立即测试运行。依赖安装优先使用清华 PyPI 镜像，失败时回退官方源。
-
----
-
-### 🔐 获取必要令牌（重要）
-
-若你希望启用 GitHub 自动推送、Cloudflare DNS 更新或微信通知，请参考下表获取对应令牌。
-
-| GitHub Personal Access Token | Cloudflare API Token | WxPusher 微信通知 |
-| :---: | :---: | :---: |
-| **1.** 登录 GitHub → Settings → Developer settings → Personal access tokens → Tokens (classic) | **1.** 进入域名概览页，点击右侧API栏的获取您的 API 令牌 | **1.** 访问 [WxPusher 后台](https://wxpusher.zjiecode.com/admin/)，微信扫码登录 |
-| **2.** Generate new token (classic)，Note 任意填 | **2.** 点击 创建令牌 → 选择 **编辑区域 DNS** 模板 | **2.** 左侧菜单“应用管理”→“应用信息”→“新增应用”，填写名称后创建 |
-| **3.** **Expiration 必须选 `No expiration`** | **3.** 权限已自动填好（区域 - DNS - 编辑），区域资源选择你的域名 | **3.** 复制保存 AppToken（仅显示一次） |
-| **4.** Select scopes: 仅勾选 **repo**（自动勾全） | **4.** 点击 继续以显示摘要 → 创建令牌 | **4.** 左侧“关注应用”→微信扫码关注公众号 |
-| **5.** Generate token，保存 | **5.** 立即复制并保存令牌（仅显示一次） | **5.** 公众号菜单“我的”→“我的UID”获取 UID |
-| 填入 `config.json` 的 `GITHUB_SYNC_TOKEN` | 填入 `config.json` 的 `CF_API_TOKEN` 和 `CF_ZONE_ID` | 填入 `config.json` 的 `WXPUSHER_APP_TOKEN` 和 `WXPUSHER_UIDS` |
-
-> 💡 若不需要某项功能，可跳过对应步骤或在配置中关闭开关：  
-> - 无需微信通知：`config.json` 中设 `ENABLE_WXPUSHER: false`  
-> - 无需 GitHub 推送：`config.json` 中设 `GITHUB_SYNC_MAX_RETRIES: 0`  
-> - 无需 Cloudflare DNS 更新：`config.json` 中设 `CF_ENABLED: false`
-
----
-
-### Windows 部署
-
-以管理员身份打开 **PowerShell**，逐行执行以下命令：
-
-```powershell
-# 1. 进入项目目录
-cd "C:\你的项目路径\cfnb"
-
-# 2. 若提示脚本禁用，临时绕过（可选）
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-
-# 3. 运行部署脚本
-.\setup.ps1
-
-# 4. 编辑配置，填入 GitHub 令牌、仓库和终端名称
-notepad config.json
-
-# 5. 再次运行部署脚本，安装依赖并应用配置
-.\setup.ps1
-
-# 6. 可选：手动测试（若上一步未选择立即运行）
-.\.venv\Scripts\python.exe main.py
-```
-
-### Linux 部署
-
-在终端中逐行执行以下命令：
+需要把结果同步到 GitHub 时，请先 Fork 本仓库作为结果仓库。为了让 setup 直接获取本项目更新，推荐克隆上游仓库，并在配置中把同步目标指向你自己的 Fork。
 
 ```bash
-# 1. 进入项目目录
-cd /path/to/cfnb
-
-# 2. 赋予执行权限
-chmod +x setup.sh
-
-# 3. 运行部署脚本（仅安装缺失系统软件时自动调用 sudo）
-./setup.sh
-
-# 4. 编辑配置，填入 GitHub 令牌、仓库和终端名称
-nano config.json
-
-# 5. 再次运行部署脚本，安装依赖并应用配置
-./setup.sh
-
-# 6. 可选：手动测试（若上一步未选择立即运行）
-./.venv/bin/python main.py
+git clone https://github.com/uxudjs/BestCfCdn.git
+cd BestCfCdn
 ```
 
-<details>
-<summary>📝 手动部署详细步骤（点击展开）</summary>
+如果选择克隆自己的 Fork，请先通过 GitHub 的 `Sync fork` 更新该 Fork；setup 只会拉取当前克隆仓库的 `origin/main`，不会代替 GitHub 同步上游。ZIP 版本可以运行，但无法由 setup 自动更新。
 
-#### Windows 手动部署
+#### 2. 首次运行 setup
 
-1. 安装 [Python 3](https://www.python.org/downloads/)（勾选 “Add Python to PATH”）。
-2. 安装 [Git](https://git-scm.com/download/win) 和 [curl](https://curl.se/windows/)（curl 需加入 PATH）。
-3. 在项目目录创建虚拟环境并安装依赖：
-   ```powershell
-   python -m venv .venv
-   .\.venv\Scripts\python.exe -m pip install --timeout 120 --retries 10 -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple -r requirements.txt
-   .\.venv\Scripts\python.exe -m pip install --timeout 120 --retries 10 -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple brotlicffi
-   ```
-4. 创建并编辑本机配置：`Copy-Item config.example.json config.json`。
-5. （可选）手动创建计划任务：
-   - 按 `Win + R`，输入 `taskschd.msc` 打开任务计划程序。
-   - 创建任务，名称 `Cloudflare IP 优选`，勾选“不管用户是否登录都要运行”和“使用最高权限运行”。
-   - 触发器：新建 → 开始任务“按预定计划” → 设置“一次”，开始时间为下一个整15分钟时刻；高级设置中勾选“重复任务间隔”，选择“15分钟”，持续时间“无限期”。
-   - 操作：新建 → 操作“启动程序”，程序填写 `python.exe` 路径，参数填写 `scheduled_run.py` 完整路径，起始于填写项目目录。
-   - 在 **“设置”** 选项卡中，将 **“优先级”** 下拉框设为 **“高”**。
-   - 点击确定，输入 Windows 登录密码保存。
-
-#### Linux 手动部署
-
-1. 安装系统依赖（以 Debian/Ubuntu 为例）：
-   ```bash
-   sudo apt update
-   sudo apt install -y python3 python3-venv git curl cron
-   ```
-2. 创建项目虚拟环境并安装 Python 依赖：
-   ```bash
-   python3 -m venv .venv
-   ./.venv/bin/python -m pip install --timeout 120 --retries 10 -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple -r requirements.txt
-   ./.venv/bin/python -m pip install --timeout 120 --retries 10 -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple brotlicffi
-   ```
-3. 创建并编辑本机配置：`cp config.example.json config.json`。
-4. 赋予推送脚本执行权限（如果需要）：
-   ```bash
-   chmod +x git_sync.sh
-   ```
-5. （可选）添加 cron 任务：
-   ```bash
-   (crontab -l 2>/dev/null; echo "*/15 * * * * cd $(pwd) && $(pwd)/.venv/bin/python $(pwd)/scheduled_run.py >> $(pwd)/cron.log 2>&1") | crontab -
-   ```
-6. 验证：`crontab -l`
-
-</details>
-
----
-
-## 🔄 安全更新本地项目
-
-需要从 GitHub 拉取最新版，同时保留本机 `config.json` 和 `ip.local.txt` 时，可运行：
-
-| 平台 | 命令 |
-| :--- | :--- |
-| Windows PowerShell | `.\update_fork.ps1` |
-| Linux | `chmod +x update_fork.sh && ./update_fork.sh` |
-
-脚本会备份本机配置和优选结果，只允许 `origin/main` 快进更新，并把本机配置值合并到最新版模板。升级旧版本时，旧的本机 `ip.txt` 会迁移为 `ip.local.txt`，远端汇总 `ip.txt` 恢复为仓库版本。若存在其他未提交代码，或本地与远端已经分叉，脚本会停止并保留备份。
-
-> [!WARNING]
-> 从仍跟踪 `config.json` 的旧版本首次升级时，请优先运行 `update_fork.ps1` / `update_fork.sh`，不要直接 `git pull`。更新脚本会先备份本机 Token，再完成配置私有化迁移。
-> 如果旧版更新脚本在首次拉取后提示 `config.json 合并失败`，配置已从备份恢复且新版脚本已经下载；直接再次运行同一更新命令即可完成迁移。
-
-> [!IMPORTANT]
-> 更新脚本不会执行 `git reset --hard`，不会把 GitHub Token 写入远程 URL，也不会处理无关历史。GitHub 节点上报始终通过 `github_sync.py` 和 Contents API 完成。
-
----
-
-## 🕒 定时自动运行说明
-
-| 平台 | 方式 | 行为 |
-| :--- | :--- | :--- |
-| Windows | 计划任务 `Cloudflare IP 优选` | 每 15 分钟调用调度入口 |
-| Linux | cron 定时任务 | 分钟字段为 `*/15`，整点对齐 |
-
-默认按北京时间划分：`18:00–24:00` 为 Cloudflare CDN 中国忙时，每 15 分钟筛选；其余时间每 30 分钟筛选。任务每 15 分钟唤醒一次，非忙时的 `:15` 和 `:45` 自动跳过。若上次筛选尚未结束，本轮也会自动跳过，避免重叠测速。
-
-如只想手动运行，请在 `config.json` 中设置：
-
-```json
-"ENABLE_SCHEDULED_TASK": false
-```
-
-然后重新执行一次 `setup.ps1`（Windows）或 `setup.sh`（Linux）。部署脚本会删除本项目已有的计划任务或 cron 条目，并且不会创建新任务。需要优选时手动执行：
+Windows PowerShell：
 
 ```powershell
-# Windows
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\setup.ps1
+```
+
+Linux：
+
+```bash
+bash setup.sh
+```
+
+首次没有 `config.json` 时，setup 会先尝试安全更新，再根据当前版本模板创建配置并退出，不会安装依赖、注册定时任务或立即运行优选。
+
+#### 3. 修改 config.json
+
+打开 setup 生成的 `config.json`，至少检查以下设置：
+
+- `GITHUB_SYNC_MAX_RETRIES` - 需要 GitHub 同步时保持大于 `0`；不需要时设为 `0`
+- `GITHUB_SYNC_FIELD_ID` - 启用 GitHub 同步时填写本终端唯一名称，例如 `济南联通`；不能包含任何空白字符、`|` 或 `#`
+- `GITHUB_SYNC_TOKEN` - 启用 GitHub 同步时填写仅授权目标仓库 Contents 读写权限的 Fine-grained Token
+- `GITHUB_SYNC_REPOSITORY` - 启用 GitHub 同步时填写目标结果仓库，格式为 `用户名/仓库名`
+- `ENABLE_SCHEDULED_TASK` - `true` 为自动运行，`false` 为仅手动运行
+- `CF_ENABLED` - 默认关闭；启用时填写 `CF_API_TOKEN`、`CF_ZONE_ID` 和 `CF_DNS_RECORD_NAME`，Token 需有区域 DNS 编辑权限，并检查 `DNS_RECORD_TYPE`
+- `ENABLE_WXPUSHER` - 默认关闭；启用异常通知时填写 `WXPUSHER_APP_TOKEN` 和 `WXPUSHER_UIDS`
+
+`DNS_RECORD_TYPE` 默认为 `TXT`，每条记录保存一个 `IP:端口`；只有 `A` 模式会发布纯 IPv4 地址。需要直接把域名作为 EdgeTunnel 入口时使用 `A`，并保持 `CF_PROXIED` 为 `false`。
+
+其余筛选、评分、并发和超时参数都带有中文注释。请只编辑本机 `config.json`；Git 忽略不等于加密，不要把真实 Token 写入 `config.example.json`、提交到 GitHub 或公开在日志中。
+
+#### 4. 再次运行 setup
+
+保存配置后，再运行一次与上一步相同的 setup 命令。脚本会自动创建项目专用 `.venv`、安装依赖并根据配置创建或清理定时任务，最后询问是否立即测试。
+
+以后更新代码、修改定时模式或修复依赖时，仍然只需运行 setup。
+
+#### 5. 手动运行（可选）
+
+Windows PowerShell：
+
+```powershell
 .\.venv\Scripts\python.exe -X utf8 main.py
 ```
 
+Linux：
+
 ```bash
-# Linux
 ./.venv/bin/python main.py
 ```
 
-手动运行 `main.py` 不受峰谷时段限制。以后把开关改回 `true` 并重新运行部署脚本，即可恢复自动调度。
+无需手动激活 `.venv`。手动运行会立即开始优选，不受峰谷时间限制。
 
-该默认窗口是工程化覆盖范围：[Cloudflare 官方说明](https://blog.cloudflare.com/http-requests-on-cloudflare-radar/)中，Radar 的 HTTP 字节指标对应 CDN 流量，且晚间内容流量会快速上升并在当地约 22 点达到峰值；中国区域可在 [Cloudflare Radar](https://radar.cloudflare.com/traffic/cn) 持续观察。实际网络不同，可通过 `SCHEDULE_CF_BUSY_START_HOUR` 和 `SCHEDULE_CF_BUSY_END_HOUR` 调整。
+### 自动运行与手动模式
 
-**日志查看**：
-- Windows：任务计划程序中查看历史记录。
-- Linux：`tail -f cron.log`
+`ENABLE_SCHEDULED_TASK` 默认为 `true`。setup 会在 Windows 创建计划任务，在 Linux 创建 cron，并让 `scheduled_run.py` 每 15 分钟检查一次当前属于忙时还是闲时。定时任务只运行优选程序；只有用户运行 setup 时才会检查代码更新。
 
----
+Windows 计划任务以 `SYSTEM` 身份运行，其代理和网络环境可能与当前用户手动运行 PowerShell 时不同。
 
-## ⚙️ 配置说明（完整参数详解）
+将其改为 `false` 后必须重新运行 setup；setup 会清除本项目已经注册的计划任务，但仍可随时手动执行 `main.py`。重新改回 `true` 并运行 setup 即可恢复自动任务。
 
-> [!NOTE]
-> 默认参数按 **中国大陆跨境链路 + 2核2G 云服务器** 调优：使用北京时间、较宽松的网络超时与重试，并降低并发以减少家庭宽带/运营商 NAT 连接耗尽。若在软路由、树莓派或低配 PC 上运行，可继续降低 `MAX_WORKERS`、`HTTP_TEST_WORKERS`、`BANDWIDTH_WORKERS`。
+### 结果与多终端同步
 
-所有参数均位于 `config.json`，以下为逐项说明。
+- `ip.local.txt` - 当前终端的本地优选结果，每次运行覆盖
+- `ip.txt` - GitHub 上的多终端汇总结果，不会作为本地输入覆盖
+- `GITHUB_SYNC_TOP_N` - 单个终端最多上报的节点数，默认为 5
+- `GITHUB_SYNC_MAX_RETRIES` - GitHub 自动同步失败时的外层重试次数；设为 `0` 可关闭 GitHub 同步
 
-### 筛选模式与数量控制
+远端每行会附加终端标识，例如 `IP:端口#地区|济南联通`。同步程序只识别并替换相同 `GITHUB_SYNC_FIELD_ID` 的行；多个终端同时写入时会重新拉取、合并并重试。
 
-| 参数 | 类型 | 默认值 | 说明 |
-| :--- | :--- | :--- | :--- |
-| `USE_GLOBAL_MODE` | `boolean` | `true` | `true`=全局优选；`false`=分国家优选 |
-| `GLOBAL_TOP_N` | `int` | `5` | 全局模式保留节点数 |
-| `PER_COUNTRY_TOP_N` | `int` | `1` | 分国家模式每国保留节点数 |
-| `BANDWIDTH_CANDIDATES` | `int` | `150` | 进入测速的候选节点数 |
-| `DNS_UPDATE_TARGET_COUNT` | `int` | `5` | DNS 更新时最多写入5个最优 IP |
+公开结果仓库可通过 `https://raw.githubusercontent.com/<用户名>/BestCfCdn/refs/heads/main/ip.txt` 读取汇总文件。私有仓库不要把 Token 拼接到 URL 查询参数中，应使用支持 `Authorization` 请求头的客户端，或改用 Cloudflare DNS 发布结果。
 
-### TCP 连接测试参数
+### 常见问题
 
-| 参数 | 类型 | 默认值 | 说明 |
-| :--- | :--- | :--- | :--- |
-| `TCP_PROBES` | `int` | `4` | 每个节点 TCP 测试次数；成功探测取中位数，避免一次幸运低延迟误导 |
-| `MIN_SUCCESS_RATE` | `float` | `0.75` | 最低成功率阈值（0.0~1.0） |
-| `TIMEOUT` | `float` | `3.0` | 单次 TCP 连接超时（秒） |
-| `SOCKET_DEFAULT_TIMEOUT` | `int` | `5` | 全局 Socket 默认超时（秒），防止永久阻塞 |
-| `PROGRESS_PRINT_INTERVAL` | `float` | `1` | 进度打印刷新间隔（秒），避免频繁 I/O |
+#### setup 会自动使用虚拟环境吗？
 
-### 代理体验综合评分 v2
+会。setup 会优先使用项目中的 `.venv`，不存在时自动创建；计划任务也会直接调用该环境中的 Python。
 
-带宽先通过 `1 - exp(-Mbps / 40)` 转换为收益递减的效用值；延迟和抖动通过 `1 / (1 + (测量值 / 参考值)²)` 转换。默认综合分为：带宽 30% + HTTP 延迟 40% + HTTP 抖动 20% + TCP 延迟 10%。某项检测被关闭或整体不可用时，其权重会自动分配给仍有数据的指标。
+#### GitHub 暂时无法访问时还能部署吗？
 
-| 参数 | 类型 | 默认值 | 说明 |
-| :--- | :--- | :--- | :--- |
-| `HTTP_JITTER_SAMPLES` | `int` | `5` | HTTP 探测次数；延迟取中位数，抖动取 P90−中位数；失败后的重试恢复耗时也计入样本 |
-| `PROXY_SCORE_BANDWIDTH_WEIGHT` | `float` | `0.30` | 带宽效用权重 |
-| `PROXY_SCORE_HTTP_LATENCY_WEIGHT` | `float` | `0.40` | HTTP 延迟权重 |
-| `PROXY_SCORE_JITTER_WEIGHT` | `float` | `0.20` | HTTP 抖动权重 |
-| `PROXY_SCORE_TCP_LATENCY_WEIGHT` | `float` | `0.10` | TCP 延迟权重 |
-| `PROXY_SPEED_SCALE_MBPS` | `float` | `40` | 带宽收益递减尺度 |
-| `PROXY_HTTP_LATENCY_REFERENCE_MS` | `float` | `180` | HTTP 延迟效用参考值 |
-| `PROXY_JITTER_REFERENCE_MS` | `float` | `50` | HTTP 抖动效用参考值 |
-| `PROXY_TCP_LATENCY_REFERENCE_MS` | `float` | `180` | TCP 延迟效用参考值 |
-| `PROXY_MIN_BANDWIDTH_MBPS` | `float` | `8` | 带宽优先门槛 |
-| `PROXY_MAX_HTTP_LATENCY_MS` | `float` | `600` | HTTP 延迟优先门槛 |
-| `PROXY_MAX_HTTP_JITTER_MS` | `float` | `200` | HTTP 抖动优先门槛 |
-| `PROXY_MAX_TCP_LATENCY_MS` | `float` | `600` | TCP 延迟优先门槛 |
+可以。自动更新遇到单纯网络故障时会继续使用当前本地版本；如果检测到配置和结果文件之外的本地代码改动、分支分叉或配置损坏等风险，setup 会停止，避免覆盖本机文件。
 
-算法按三层执行：先淘汰不可用节点，再让满足体验门槛的节点按综合分排序，最后只在名额不足时从其余已通过可用性检测的节点补位。单个节点带宽测速失败不会重新引入先前被 HTTP/可用性检测淘汰的节点，也不会直接导致可用节点不足 5 个；它会以 0 Mbps、低优先级参与补位，并在控制台标明放宽原因。
+#### 已有旧版 config.json 会被覆盖吗？
 
-全局与分国家模式会同时作用于本机/GitHub 结果和 Cloudflare DNS：分国家模式下，DNS 完成 IPv6、黑名单与风险过滤后，仍严格遵守 `PER_COUNTRY_TOP_N`，再从其他国家的候选中补足名额。
+不会直接覆盖。安全更新成功后会把新版模板中的新增字段补入，同时保留仍受支持的本机值。非常旧的安装第一次升级时，可先运行一次 `update_fork.ps1` 或 `update_fork.sh`，之后只使用 setup。
 
-### 前置过滤参数（TCP 测试前生效）
+#### 为什么改为手动模式后任务仍然存在？
 
-| 参数 | 类型 | 默认值 | 说明 |
-| :--- | :--- | :--- | :--- |
-| `PRE_FILTER_PORT_ENABLED` | `boolean` | `true` | 是否启用前置端口过滤 |
-| `PRE_FILTER_PORTS` | `array` | `[443]` | TCP 测试前允许的端口列表（可多个） |
-| `PRE_FILTER_BLOCKED_ENABLED` | `boolean` | `true` | 是否启用前置黑名单过滤 |
-| `PRE_FILTER_BLOCKED_COUNTRIES` | `array` | `["CN"]` | 前置黑名单国家代码列表（TCP 测试前剔除） |
-| `FILTER_COUNTRIES_ENABLED` | `boolean` | `false` | 是否启用前置白名单过滤 |
-| `ALLOWED_COUNTRIES` | `array` | `["US"]` | 前置白名单国家代码列表（仅在开关开启时生效） |
+修改 `ENABLE_SCHEDULED_TASK` 后还需要重新运行 setup，脚本才会应用设置并删除旧任务。
 
-> 💡 过滤执行顺序：**前置端口过滤 → 前置黑名单 → 前置白名单**。  
-> 所有前置过滤均在 TCP 测试前完成，可大幅减少无效测试。
+#### GitHub 同步失败应该检查什么？
 
-### 网络直连控制
+确认 Token 具有 Contents 读写权限、仓库名和分支正确、`GITHUB_SYNC_FIELD_ID` 合法，并检查当前网络是否能够访问 GitHub。不要在 Issue 或日志中公开 Token。
 
-| 参数 | 类型 | 默认值 | 说明 |
-| :--- | :--- | :--- | :--- |
-| `FORCE_DIRECT` | `boolean` | `false` | 是否强制所有网络请求直连（`true`=清除系统代理，全部走直连） |
+#### 为什么不推荐 ZIP 安装？
 
-### DNS 黑名单参数（仅作用于 DNS 更新环节）
+ZIP 版本缺少 Git 历史，setup 会跳过自动更新。希望长期只操作 setup 时，请使用 Git 克隆版本。
 
-| 参数 | 类型 | 默认值 | 说明 |
-| :--- | :--- | :--- | :--- |
-| `FILTER_IPV6_AVAILABILITY` | `boolean` | `true` | **仅作用于 DNS**：是否过滤落地仅 IPv6 的节点（`ipv6_only`） |
-| `FILTER_BLOCKED_COUNTRIES_ENABLED` | `boolean` | `true` | DNS 更新时是否启用黑名单过滤 |
-| `BLOCKED_COUNTRIES` | `array` | `BD, BI, BY, CD, CF, CN, CU, DE, ET, HK,`<br>`IR, KP, LY, MO, NG, NL, PK, RU, SD, SO,`<br>`SY, TH, TW, UA, VE, VN, YE, ZW` | DNS 更新时需要剔除的国家代码列表（共 28 个） |
-| `DNS_IP_RISK_FILTER_ENABLED` | `boolean` | `false` | 是否启用 IP 风险等级过滤 |
-| `DNS_IP_RISK_MAX_LEVEL` | `string` | `高风险` | 允许的最高风险等级（可选：极度纯净、纯净、轻微风险、高风险、极度危险） |
+### 适用范围
 
-> **说明**：  
-> - 该过滤**仅作用于 Cloudflare DNS 批量更新环节**，不会影响本机 `ip.local.txt` 的内容和 GitHub 推送。
-> - DNS 更新时会**同时应用以下条件**，只有全部满足的节点才会写入 DNS：  
->   - 端口必须为 `443`  
->   - 落地不能仅为 IPv6（即保留 IPv4 或双栈节点，需开启 `FILTER_IPV6_AVAILABILITY`）  
->   - 国家不在 `BLOCKED_COUNTRIES` 黑名单中（需开启 `FILTER_BLOCKED_COUNTRIES_ENABLED`）  
->   - IP 风险等级不高于设定阈值（需开启 `DNS_IP_RISK_FILTER_ENABLED`，若过滤后无节点则自动回退到未过滤列表）
-
-### 微信通知（WxPusher）参数
-
-| 参数 | 类型 | 默认值 | 说明 |
-| :--- | :--- | :--- | :--- |
-| `ENABLE_WXPUSHER` | `boolean` | `false` | 是否启用微信通知，默认关闭 |
-| `WXPUSHER_APP_TOKEN` | `string` | `"your_app_token_here"` | **【必填】** WxPusher 的 APP_TOKEN |
-| `WXPUSHER_UIDS` | `array` | `["your_uid_here"]` | **【必填】** 接收通知的用户 UID 列表 |
-| `WXPUSHER_API_URL` | `string` | `"https://wxpusher.zjiecode.com/api/send/message"` | 消息发送 API 地址 |
-| `NOTIFY_TIMEOUT` | `int` | `8` | 微信通知 API 读取超时（秒） |
-| `NOTIFY_CONNECT_TIMEOUT` | `int` | `5` | 微信通知 API 连接超时（秒） |
-
-> 💡 若不需要通知，将 `ENABLE_WXPUSHER` 设为 `false` 即可。
-
-### Cloudflare DNS 批量更新参数
-
-| 参数 | 类型 | 默认值 | 说明 |
-| :--- | :--- | :--- | :--- |
-| `CF_ENABLED` | `boolean` | `true` | 是否启用 DNS 自动更新 |
-| `CF_API_TOKEN` | `string` | `"your_CF_API_TOKEN"` | Cloudflare API 令牌（Zone:DNS:Edit 权限） |
-| `CF_ZONE_ID` | `string` | `"your_CF_ZONE_ID"` | 域名区域 ID |
-| `CF_DNS_RECORD_NAME` | `string` | `"your_CF_DNS_RECORD_NAME"` | 完整子域名 |
-| `CF_TTL` | `int` | `60` | DNS 记录 TTL（秒） |
-| `CF_PROXIED` | `boolean` | `false` | 是否启用 Cloudflare CDN 代理 |
-| `CF_DNS_CONNECT_TIMEOUT` | `int` | `5` | Cloudflare API 连接超时（秒） |
-| `CF_DNS_READ_TIMEOUT` | `int` | `10` | Cloudflare API 读取超时（秒） |
-| `DNS_RECORD_TYPE` | `string` | `"TXT"` | DNS 记录类型（A 或 TXT） |
-
-> 💡 若不需要 DNS 更新，将 `CF_ENABLED` 设为 `false` 即可。
-
-### 节点数据源与获取配置
-
-> [!NOTE]
-> 本工具支持**多个数据源同时使用**，并内置了**完全自适应的解析引擎**。无论数据源是标准 `IP:端口#代码` 格式，还是中文标签、emoji国旗、JSON数组/对象，甚至是混合无关文字的标签，程序都能自动识别并统一转换为标准格式。添加新数据源只需在 `ADDITIONAL_SOURCES` 数组中新增一个对象，无需任何代码修改。
-
-| 参数 | 类型 | 默认值 | 说明 |
-| :--- | :--- | :--- | :--- |
-| `ADDITIONAL_SOURCES` | `array` | `[]` | 所有数据源列表，每个对象包含 `url`（必填）和 `enabled`（可选，默认true）。程序会自动识别并解析任何常见格式（标准代码/中文/emoji/JSON等） |
-| `FETCH_MAX_RETRIES` | `int` | `5` | 获取节点列表失败时的最大重试次数 |
-| `FETCH_RETRY_DELAY` | `int` | `5` | 获取节点列表重试间隔（秒） |
-| `FETCH_TIMEOUT` | `int` | `10` | 获取节点列表读取超时（秒） |
-| `FETCH_CONNECT_TIMEOUT` | `int` | `5` | 获取节点列表连接超时（秒） |
-| `OUTPUT_FILE` | `string` | `"ip.local.txt"` | 本机最终结果文件；不得与远端汇总路径重名 |
-| `ENABLE_LOGGING` | `boolean` | `false` | 是否启用运行日志（每次运行覆盖 LOG_FILE） |
-| `LOG_FILE` | `string` | `"cfnb.log"` | 运行日志文件名（仅在启用日志时生效） |
-
-### IP 地区校准参数
-
-| 参数 | 类型 | 默认值 | 说明 |
-| :--- | :--- | :--- | :--- |
-| `IP_CALIBRATION_ENABLED` | `boolean` | `false` | 是否启用 IP 地区校准（基于 ipinfo.io） |
-| `IP_CALIBRATION_MIN_INTERVAL` | `float` | `0.1` | 请求最小间隔（秒） |
-| `IP_CALIBRATION_TOKEN_FILE` | `string` | `"valid_tokens.txt"` | ipinfo.io Token 文件名 |
-| `IP_CALIBRATION_CACHE_FILE` | `string` | `"ipinfo_cache.txt"` | 校准结果缓存文件名 |
-
-> 💡 校准结果会实时写入缓存文件，程序结束后自动按 IP 地址排序，下次运行可复用。  
-> Token 文件每行一个 ipinfo.io 的 API Token，可在 [ipinfo.io](https://ipinfo.io/) 注册免费获取（每月 5 万次）。  
-> 程序会自动校验 Token 有效性并显示进度，当所有 Token 均触发速率限制时，会通过微信通知。
-
-<details>
-<summary>🔧 高级参数（可用性 /HTTP / 带宽 / 并发 / 重试 / 广告/ 输出）</summary>
-
-**可用性检测参数**
-
-| 参数 | 类型 | 默认值 | 说明 |
-| :--- | :--- | :--- | :--- |
-| `TEST_AVAILABILITY` | `boolean` | `true` | 是否进行可用性二次筛选 |
-| `AVAILABILITY_CHECK_API` | `string` | `"https://api.090227.xyz/check"` | 可用性检测 API 地址 |
-| `AVAILABILITY_TIMEOUT` | `int` | `8` | 可用性 API 读取超时（秒） |
-| `AVAILABILITY_CONNECT_TIMEOUT` | `int` | `5` | 可用性 API 连接超时（秒） |
-| `AVAILABILITY_RETRY_MAX` | `int` | `3` | 可用性检测最大重试轮数 |
-| `AVAILABILITY_RETRY_DELAY` | `int` | `3` | 可用性检测重试间隔（秒） |
-| `AVAILABILITY_INNER_RETRY_ENABLED` | `boolean` | `true` | 可用性检测是否启用单节点内部重试 |
-| `AVAILABILITY_INNER_RETRY_MAX` | `int` | `2` | 可用性检测单节点内部最大重试次数 |
-| `AVAILABILITY_INNER_RETRY_DELAY` | `int` | `3` | 可用性检测单节点内部重试间隔（秒） |
-
-> 💡 IPv6 过滤逻辑：通过 API 返回的 `inferred_stack` 判断，仅淘汰 `ipv6_only` 节点，保留 `ipv4_only` 和 `dual_stack` 节点。
-
-**HTTP 检测参数**
-
-| 参数 | 类型 | 默认值 | 说明 |
-| :--- | :--- | :--- | :--- |
-| `HTTP_TEST_ENABLED` | `boolean` | `true` | 是否启用 HTTP检测（过滤 HTTP 响应头非Cloudflare 的节点） |
-| `HTTP_TEST_TIMEOUT` | `int` | `8` | 单次 HTTP 请求读取超时（秒） |
-| `HTTP_TEST_CONNECT_TIMEOUT` | `int` | `5` | HTTP 检测的连接超时（秒），与读取超时分离 |
-| `HTTP_TEST_INNER_RETRY_ENABLED` | `boolean` | `true` | HTTP 检测是否启用单节点内部重试 |
-| `HTTP_TEST_MAX_RETRIES` | `int` | `2` | 单节点 HTTP 请求超时重试次数 |
-| `HTTP_TEST_RETRY_DELAY` | `int` | `3` | HTTP 请求重试间隔（秒） |
-| `HTTP_TEST_MAX_ROUNDS` | `int` | `3` | 整体失败（通过率为0）时的最大重试轮数 |
-| `HTTP_TEST_ROUND_DELAY` | `int` | `3` | 整体重试间隔（秒） |
-| `HTTP_TEST_METHOD` | `string` | `"HEAD"` | 请求方法（`GET` 或 `HEAD`） |
-
-> 💡 HTTP 检测在可用性检测之后、带宽测速之前执行，仅淘汰非 `Code: 400` 和 `Server: cloudflare` 的节点，其余均视为可用。
-
-**带宽测速参数**
-
-| 参数 | 类型 | 默认值 | 说明 |
-| :--- | :--- | :--- | :--- |
-| `BANDWIDTH_SIZE_MB` | `float` | `2.0` | 测速下载文件大小（MB），降低短时突发对结果的影响 |
-| `BANDWIDTH_TIMEOUT` | `int` | `8` | 单个节点带宽测速超时（秒） |
-| `BANDWIDTH_RETRY_MAX` | `int` | `2` | 带宽测速整体重试轮数 |
-| `BANDWIDTH_RETRY_DELAY` | `int` | `3` | 带宽测速重试间隔（秒） |
-| `BANDWIDTH_URL_TEMPLATE` | `string` | `"https://speed.cloudflare.com/__down?bytes={bytes}"` | 测速 URL 模板 |
-| `BANDWIDTH_PROCESS_BUFFER` | `int` | `2` | curl 进程额外缓冲时间（秒） |
-| `BANDWIDTH_CONNECT_TIMEOUT` | `int` | `5` | curl 测速连接超时（秒） |
-
-**并发控制参数**
-
-| 参数 | 类型 | 默认值 | 说明 |
-| :--- | :--- | :--- | :--- |
-| `IP_CALIBRATION_CONCURRENCY` | `int` | `100` | 地区校准的异步并发数 |
-| `MAX_WORKERS` | `int` | `150` | TCP 并发测试最大线程数 |
-| `AVAILABILITY_WORKERS` | `int` | `16` | 可用性检测并发数 |
-| `FALLBACK_WORKERS` | `int` | `16` | 备用国家查询的并发线程数（当标签无法识别时自动调用可用性API查询国家） |
-| `HTTP_TEST_WORKERS` | `int` | `16` | HTTP 检测并发线程数 |
-| `BANDWIDTH_WORKERS` | `int` | `2` | 带宽测速并发数 |
-
-**重试策略配置**
-
-| 参数 | 类型 | 默认值 | 说明 |
-| :--- | :--- | :--- | :--- |
-| `DNS_UPDATE_MAX_RETRIES` | `int` | `5` | DNS 更新最大重试次数 |
-| `DNS_UPDATE_RETRY_DELAY` | `int` | `5` | DNS 更新重试间隔（秒） |
-| `GITHUB_SYNC_MAX_RETRIES` | `int` | `5` | GitHub 推送最大重试次数 |
-| `GITHUB_SYNC_RETRY_DELAY` | `int` | `5` | GitHub 推送重试间隔（秒） |
-| `GIT_SYNC_PROCESS_TIMEOUT` | `int` | `300` | Git 同步子进程最大运行时间（秒） |
-
-**多终端 GitHub 同步参数**
-
-| 参数 | 类型 | 默认值 | 说明 |
-| :--- | :--- | :--- | :--- |
-| `GITHUB_SYNC_TOKEN` | `string` | 占位符 | GitHub Token，不要提交真实值 |
-| `GITHUB_SYNC_REPOSITORY` | `string` | 占位符 | 目标仓库，格式 `owner/repo` |
-| `GITHUB_SYNC_BRANCH` | `string` | `main` | 目标分支 |
-| `GITHUB_SYNC_REMOTE_PATH` | `string` | `ip.txt` | 远端汇总文件路径 |
-| `GITHUB_SYNC_FIELD_ID` | `string` | 占位符 | 每台终端唯一名称 |
-| `GITHUB_SYNC_TOP_N` | `int` | `5` | 每台终端最多上报节点数 |
-| `GITHUB_SYNC_CONFLICT_RETRIES` | `int` | `8` | SHA 冲突时重新拉取合并次数 |
-
-**Cloudflare CDN 中国峰谷调度参数**
-
-| 参数 | 类型 | 默认值 | 说明 |
-| :--- | :--- | :--- | :--- |
-| `ENABLE_SCHEDULED_TASK` | `boolean` | `true` | 是否创建并执行自动定时任务；关闭后仍可手动运行 `main.py` |
-| `SCHEDULE_TIMEZONE_OFFSET_HOURS` | `number` | `8` | 调度时区，默认北京时间 |
-| `SCHEDULE_CF_BUSY_START_HOUR` | `int` | `18` | CF CDN 中国忙时开始（含） |
-| `SCHEDULE_CF_BUSY_END_HOUR` | `int` | `24` | CF CDN 中国忙时结束（不含） |
-| `SCHEDULE_BUSY_INTERVAL_MINUTES` | `int` | `15` | 忙时筛选间隔 |
-| `SCHEDULE_OFFPEAK_INTERVAL_MINUTES` | `int` | `30` | 非忙时筛选间隔 |
-| `SCHEDULE_LOCK_STALE_MINUTES` | `int` | `180` | 防重叠锁失效时间 |
-
-#### 广告植入参数
-
-| 参数 | 类型 | 默认值 | 说明 |
-| :--- | :--- | :--- | :--- |
-| `AD_HEADER_ENABLED` | `boolean` | `false` | 是否在本机结果文件头部插入自定义广告行 |
-| `AD_HEADER_LINES` | `array` | `["0.0.0.0:443#格式 或纯文本1", "0.0.0.0:443#格式 或纯文本2"]` | 头部广告内容列表（可填任意格式） |
-| `AD_FOOTER_ENABLED` | `boolean` | `false` | 是否在本机结果文件尾部插入自定义广告行 |
-| `AD_FOOTER_LINES` | `array` | `["0.0.0.0:443#格式 或纯文本3", "0.0.0.0:443#格式 或纯文本4"]` | 尾部广告内容列表（可填任意格式） |
-| `AD_PERLINE_ENABLED` | `boolean` | `false` | 是否在每行节点末尾追加固定文本 |
-| `AD_PERLINE_TEXT` | `string` | `" 纯文本"` | 追加到每行节点末尾的文本 |
-
-> 💡 三个开关完全独立，头部/尾部可为多条，行尾为单条固定文本。  
-> 开启后只会改变本机 `ip.local.txt` 内容，不影响 Cloudflare DNS 更新（DNS 仍使用纯净节点列表）。
-
-#### 本机结果输出内容控制
-
-控制最终 `ip.local.txt` 文件中每行节点后是否附带带宽测速、HTTP 延迟、HTTP 抖动和 TCP 延迟信息，方便直接查看或用于其他工具解析。
-
-| 参数 | 类型 | 默认值 | 说明 |
-| :--- | :--- | :--- | :--- |
-| `IP_TXT_SHOW_BANDWIDTH` | `boolean` | `false` | 是否附带带宽测速结果（如 ` 5.20 Mbps`） |
-| `IP_TXT_SHOW_HTTP_LATENCY` | `boolean` | `false` | 是否附带 HTTP 延迟信息（如 ` 30.00 ms`） |
-| `IP_TXT_SHOW_HTTP_JITTER` | `boolean` | `false` | 是否附带 HTTP 抖动信息（如 ` 2.50 ms`） |
-| `IP_TXT_SHOW_LATENCY` | `boolean` | `false` | 是否附带 TCP 延迟信息（如 ` 50.30 ms`） |
-
-> 多个开关可以独立或同时开启，输出格式示例：  
-> `104.16.0.1:443#US 5.20 Mbps 30.00 ms 2.50 ms 50.30 ms`  
-> （对应：速度 HTTP延迟 HTTP抖动 TCP延迟）
-
-</details>
-
-> 💡 **快速配置建议**  
-> - 通常只需修改 `ALLOWED_COUNTRIES`、`WXPUSHER_APP_TOKEN`、`WXPUSHER_UIDS`。  
-> - 启用 DNS 更新需正确填写 `CF_API_TOKEN`、`CF_ZONE_ID`、`CF_DNS_RECORD_NAME`。  
-> - 网络不稳定时可 ↑ `TCP_PROBES` / `TIMEOUT`，↓ `MIN_SUCCESS_RATE` / `MAX_WORKERS`。  
-> - 希望更快出结果可 ↓ `BANDWIDTH_CANDIDATES` 或 `BANDWIDTH_SIZE_MB`。
+- ✅ Windows 10 / 11 与常见 Linux 发行版
+- ✅ Python 3.9 或更高版本、Git 与 curl
+- ✅ Cloudflare CDN、EdgeTunnel 等需要优选入口节点的代理场景
+- ✅ 单终端本地筛选或多地区、多运营商终端联合维护
+- ✅ 项目采用 [MIT License](./LICENSE)
 
 ---
 
-## 📊 结果输出说明
+## 🇹🇼 繁體中文
 
-程序运行完成后，会在本地生成 `ip.local.txt` 文件，每行格式为 `IP地址:端口#国家代码`，例如：
+面向 Cloudflare CDN 與 EdgeTunnel 代理情境的跨平台 IP 自動優選工具。它負責篩選和發佈節點，本身不提供代理服務。
 
-> `104.16.x.x:443#US`  
-> `162.159.x.x:443#HK`
+### 主要功能
 
-**重要说明**：  
-- `ip.local.txt` 中保存的是**本终端基于综合加权排序的结果**，综合考虑了带宽、TCP 延迟、HTTP 延迟和抖动。GitHub 同步只读取该本机文件的前 5 个有效节点。
-- Cloudflare DNS 批量更新环节会额外应用 `FILTER_IPV6_AVAILABILITY`（过滤落地 IPv6）、`BLOCKED_COUNTRIES`（屏蔽特定国家）、`DNS_IP_RISK_FILTER_ENABLED`（IP 风险等级过滤，可设定最高允许等级，过滤后无节点自动回退到无风险过滤列表）等过滤，仅将符合条件的 IP 写入 DNS 记录。
+- ✅ **多來源節點彙整** - 自動讀取多個公開資料來源，並適配一般文字、JSON、中文地區名稱和 emoji 國旗等格式
+- ⚡ **分層品質檢測** - 依序進行連接埠與地區預篩、TCP 成功率、代理可用性、HTTP 延遲、抖動和真實頻寬測試
+- ⚖️ **代理體驗評分** - 以 HTTP 回應體驗為主，綜合頻寬、抖動和 TCP 連線延遲，避免只追求單項最高速度
+- 🇨🇳 **中國大陸預設設定** - 預設參數針對中國大陸跨境代理情境設定，並保留完整註解方便調整
+- 🏆 **最佳節點輸出** - 全域模式預設只保留 5 個綜合體驗最好的節點，也支援按國家篩選
+- 📤 **多終端安全同步** - 每台終端只替換遠端 `ip.txt` 中屬於自己的行，預設最多 5 行且不會覆蓋其他終端結果
+- ⏱️ **峰谷自動排程** - 預設按北京時間 18:00–24:00 每 15 分鐘執行，其餘時段每 30 分鐘執行，並防止任務重疊
+- 🖥️ **一鍵安裝更新** - Windows 和 Linux 均以 setup 為日常唯一入口，自動建立 `.venv`、安裝依賴、套用排程設定並安全更新
+- ☁️ **可選結果發佈** - 支援更新 Cloudflare DNS、同步 GitHub 和傳送 WxPusher 異常通知，三項功能可分別設定
+- 🔒 **本機設定保護** - 含 Token 的 `config.json` 和本機結果預設不會提交到 Git，更新時會合併並保留有效舊設定
 
----
+### 安裝使用
 
-## ☁️ 配置 Cloudflare DNS 自动更新
+#### 1. 取得專案
 
-本工具支持将优选出的 IP 地址列表自动更新到 Cloudflare DNS 的同名 A 记录，实现解析层面的多 IP 轮询负载均衡。
+需要把結果同步到 GitHub 時，請先 Fork 本倉庫作為結果倉庫。為了讓 setup 直接取得本專案更新，建議複製上游倉庫，並在設定中把同步目標指向你自己的 Fork。
 
-### 第一步：获取 Cloudflare API Token 与 Zone ID
-
-1. 按照 [获取必要令牌](#-获取必要令牌重要) 中的步骤获取 **Cloudflare API Token**（需具有 Zone:DNS:Edit 权限）。
-2. 在 Cloudflare 域名概览页面右侧复制你的 **Zone ID**。
-
-### 第二步：填写配置文件
-
-编辑 `config.json`，找到 Cloudflare DNS 配置部分，填入你的信息：
-
-```json
-"CF_ENABLED": true,
-"CF_API_TOKEN": "your_CF_API_TOKEN",
-"CF_ZONE_ID": "your_CF_ZONE_ID",
-"CF_DNS_RECORD_NAME": "your_CF_DNS_RECORD_NAME",
-"CF_TTL": 60,
-"CF_PROXIED": false
+```bash
+git clone https://github.com/uxudjs/BestCfCdn.git
+cd BestCfCdn
 ```
 
-| 参数 | 说明 |
-|------|------|
-| `CF_ENABLED` | 设为 `true` 启用 DNS 自动更新 |
-| `CF_API_TOKEN` | 上一步获取的 API Token |
-| `CF_ZONE_ID` | 上一步获取的 Zone ID |
-| `CF_DNS_RECORD_NAME` | 要更新的完整子域名 |
-| `CF_TTL` | DNS 记录 TTL（秒），免费套餐最低 120 |
-| `CF_PROXIED` | 是否启用 Cloudflare CDN 代理（橙色云朵），通常设为 `false` |
+如果選擇複製自己的 Fork，請先透過 GitHub 的 `Sync fork` 更新該 Fork；setup 只會拉取目前複製倉庫的 `origin/main`，不會代替 GitHub 同步上游。ZIP 版本可以執行，但無法由 setup 自動更新。
 
-> 💡 若不需要 DNS 更新功能，将 `CF_ENABLED` 设为 `false` 即可。
+#### 2. 首次執行 setup
 
-### 第三步：测试运行
+Windows PowerShell：
 
-1. 手动运行一次优选程序：`python main.py`（Windows）或 `python3 main.py`（Linux）。
-2. 程序运行结束后，观察控制台输出。若看到 `✅ Cloudflare DNS 批量更新成功！`，则配置成功。
-
-### 工作原理
-
-每次运行时，脚本会：
-
-1. 查询目标子域名下现有的所有 A 记录。
-2. 从带宽测速结果中按速度顺序挑选落地 IPv4 的节点（若启用 `FILTER_IPV6_AVAILABILITY`）。
-3. 组装一个原子批量请求：同时删除所有旧记录并创建全部新记录。
-
-### 注意事项
-
-- 免费套餐单次批量操作最多支持 200 条记录，足够使用。
-- 若候选池中落地 IPv4 节点不足目标数量，则更新实际可用的数量，不会强制凑满。
-- 使用原子批量 API，单次请求完成删除和创建，可能存在极短暂的解析真空期（通常 1~5 秒）。
-
----
-
-## 📤 配置 GitHub 自动同步
-
-同步不再执行 `git pull` 或 `git push --force`，而是通过 GitHub Contents API 读取远端文件当前版本、只替换本终端节点，再带文件 SHA 提交。若其他终端先一步更新导致 SHA 冲突，程序会重新拉取并再次合并。
-
-### 第一步：配置每台终端
-
-每台终端编辑自己的 `config.json`：
-
-```json
-"GITHUB_SYNC_TOKEN": "你的 GitHub Token",
-"GITHUB_SYNC_REPOSITORY": "uxudjs/BestCfCdn",
-"GITHUB_SYNC_BRANCH": "main",
-"GITHUB_SYNC_REMOTE_PATH": "ip.txt",
-"GITHUB_SYNC_FIELD_ID": "济南联通",
-"GITHUB_SYNC_TOP_N": 5
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\setup.ps1
 ```
 
-`GITHUB_SYNC_FIELD_ID` 必须在所有终端中唯一，例如另一台填写 `郑州教育网`。Fine-grained PAT 仅需给目标仓库授予 **Contents: Read and write**；classic PAT 需要 `repo` 权限。
+Linux：
 
-### 第二步：测试同步
-
-1. 确保项目目录下已有 `ip.local.txt` 文件（可先手动运行一次 `python main.py` 生成）。
-2. 手动执行推送脚本测试：
-   - **Windows**：双击运行 `git_sync.ps1` 或在 PowerShell 中执行 `.\git_sync.ps1`
-   - **Linux**：执行 `./git_sync.sh`
-3. 若终端显示“已安全同步”，则配置成功。之后每次运行 `main.py` 都会自动调用并发安全同步。
-4. 远端文件示例：
-
-```text
-104.16.0.1:443#US|济南联通
-104.16.0.2:443#US|济南联通
-162.159.1.1:443#US|郑州教育网
+```bash
+bash setup.sh
 ```
 
-每行仍是合法的 `IP:端口#标签`。某终端再次同步时，只替换标签最后一个 `|` 后与自己 `GITHUB_SYNC_FIELD_ID` 完全一致的行，其他内容保持原样。
+首次沒有 `config.json` 時，setup 會先嘗試安全更新，再依照目前版本範本建立設定並退出，不會安裝依賴、註冊排程任務或立即執行優選。
 
-<details>
-<summary>🚨 推送报错常见原因</summary>
+#### 3. 修改 config.json
 
-| 报错信息 | 原因 | 解决方法 |
-|----------|------|----------|
-| `401` / `403` | Token 无效或 Contents 权限不足 | 检查 Token 与仓库授权 |
-| `404` | 仓库、分支或路径配置错误 | 检查 `GITHUB_SYNC_REPOSITORY` 与 `GITHUB_SYNC_BRANCH` |
-| `409` / `422` | 多终端并发更新 | 程序会自动重新拉取合并；持续出现时增加冲突重试次数 |
-| 没有有效节点 | 本机 `ip.local.txt` 尚未生成 | 先运行 `main.py` |
-</details>
+開啟 setup 產生的 `config.json`，至少檢查以下設定：
 
----
+- `GITHUB_SYNC_MAX_RETRIES` - 需要 GitHub 同步時保持大於 `0`；不需要時設為 `0`
+- `GITHUB_SYNC_FIELD_ID` - 啟用 GitHub 同步時填寫本終端唯一名稱，例如 `濟南聯通`；不能包含任何空白字元、`|` 或 `#`
+- `GITHUB_SYNC_TOKEN` - 啟用 GitHub 同步時填寫僅授權目標倉庫 Contents 讀寫權限的 Fine-grained Token
+- `GITHUB_SYNC_REPOSITORY` - 啟用 GitHub 同步時填寫目標結果倉庫，格式為 `使用者名稱/倉庫名稱`
+- `ENABLE_SCHEDULED_TASK` - `true` 為自動執行，`false` 為僅手動執行
+- `CF_ENABLED` - 預設關閉；啟用時填寫 `CF_API_TOKEN`、`CF_ZONE_ID` 和 `CF_DNS_RECORD_NAME`，Token 需有區域 DNS 編輯權限，並檢查 `DNS_RECORD_TYPE`
+- `ENABLE_WXPUSHER` - 預設關閉；啟用異常通知時填寫 `WXPUSHER_APP_TOKEN` 和 `WXPUSHER_UIDS`
 
-> [!WARNING]
-> **关于私有仓库的特别提醒**
-> 
-> 如果你将仓库设置为 **Private（私有）**，则通过 Raw 链接访问 `ip.txt` 时必须在 URL 后附加 `?token=xxxxxx` 参数才能获取内容，例如：
-> ```text
-> https://raw.githubusercontent.com/用户名/仓库名/refs/heads/分支名/ip.txt?token=xxxxxx
-> ```
-> 但请注意，**部分代理工具或订阅解析器可能无法正确处理带 Token 参数的 URL**，原因包括：
-> - 不支持自定义请求头（GitHub 要求完整的 User-Agent 等头信息）
-> - 无法解析带查询参数的链接
-> - 防火墙或网络环境限制
-> 
-> **因此，如果你希望将 `ip.txt` 作为订阅链接供代理工具使用，强烈建议将仓库设为 Public（公开）。**
-> 
-> 公开仓库的 Raw 链接无需 Token 即可访问，兼容性最佳：
-> ```text
-> https://raw.githubusercontent.com/用户名/仓库名/refs/heads/分支名/ip.txt
-> ```
+`DNS_RECORD_TYPE` 預設為 `TXT`，每筆記錄儲存一個 `IP:連接埠`；只有 `A` 模式會發佈純 IPv4 位址。需要直接把網域作為 EdgeTunnel 入口時使用 `A`，並保持 `CF_PROXIED` 為 `false`。
 
-### 验证与订阅
+其餘篩選、評分、並行和逾時參數都有中文註解。請只編輯本機 `config.json`；Git 忽略不等於加密，不要把真實 Token 寫入 `config.example.json`、提交到 GitHub 或公開在日誌中。
 
-推送成功后，访问 `https://raw.githubusercontent.com/你的用户名/仓库名/refs/heads/分支名/ip.txt` 即可获取最新节点列表，供代理工具订阅使用。
+#### 4. 再次執行 setup
 
-> 💡 若不需要 GitHub 同步功能，可在 `config.json` 中设置 `GITHUB_SYNC_MAX_RETRIES: 0` 即可关闭。
+儲存設定後，再執行一次與上一步相同的 setup 指令。腳本會自動建立專案專用 `.venv`、安裝依賴並依照設定建立或清理排程任務，最後詢問是否立即測試。
 
----
+以後更新程式碼、修改排程模式或修復依賴時，仍然只需執行 setup。
 
-## 🚀 对接 EdgeTunnel (2.0+) 指南
+#### 5. 手動執行（可選）
 
-**EdgeTunnel** (EDTunnel) 是基于 Cloudflare Workers 的隧道工具。使用本项目筛选出的 `ip.txt` 可以显著提升连接速度和稳定性。
+Windows PowerShell：
 
-### 方法一：优选订阅模式（推荐）
+```powershell
+.\.venv\Scripts\python.exe -X utf8 main.py
+```
 
-1. 复制你的 GitHub Raw 链接：
-   ```text
-   https://raw.githubusercontent.com/你的用户名/仓库名/refs/heads/分支名/ip.txt
-   ```
-2. 打开 EdgeTunnel 控制面板，点击菜单栏的 **“优选订阅生成”**。
-3. 在 **“优选订阅模式”** 区域，选择 **“自定义订阅（支持汇聚订阅）”**。
-4. 点击 **“订阅接口”** 按钮，在 **API URL** 输入框中粘贴上一步获取的 GitHub Raw 链接。
-   > 💡 如需指定端口，可在链接后添加 `?port=443`。
-5. （可选）勾选 **“将优选作为 PROXYIP”**。
-6. 点击 **“可用性验证”**，系统将验证 API 并拉取节点列表。
-7. 检查无误后，点击 **“追加API”** 按钮将链接加入自定义订阅地址。
-8. 点击 **“保存”** 按钮完成配置。
+Linux：
 
-### 方法二：手动替换 EdgeTunnel 节点配置
+```bash
+./.venv/bin/python main.py
+```
 
-1. 打开 EdgeTunnel 控制面板，点击菜单栏的 **“优选订阅生成”**。
-2. 在 **“优选订阅模式”** 区域，选择 **“自定义订阅（支持汇聚订阅）”**。
-3. 在 **“自定义订阅地址”** 输入框中直接粘贴节点地址，每行一个，例如：
-   ```text
-   104.16.x.x:443#US
-   162.159.x.x:443#HK
-   ```
-4. 点击 **“保存”** 按钮，即可手动指定优选的节点列表。
+不需要手動啟用 `.venv`。手動執行會立即開始優選，不受峰谷時間限制。
 
-### 方法三：使用 Cloudflare DNS 域名（推荐）
+### 自動執行與手動模式
 
-如果你已启用 Cloudflare DNS 批量更新，可以直接将你的子域名（如 `cf.yourdomain.com`）填入 EdgeTunnel：
+`ENABLE_SCHEDULED_TASK` 預設為 `true`。setup 會在 Windows 建立排程任務，在 Linux 建立 cron，並讓 `scheduled_run.py` 每 15 分鐘檢查一次目前屬於忙時還是閒時。排程任務只執行優選程式；只有使用者執行 setup 時才會檢查程式碼更新。
 
-**方式一：通过“优选订阅生成”**
-1. 打开 **“优选订阅生成”** 页面，选择 **“自定义订阅（支持汇聚订阅）”**。
-2. 在 **“自定义订阅地址”** 输入框中，填入你的子域名（例如 `cf.yourdomain.com`）。
-3. 点击 **“保存”** 按钮。
+Windows 排程任務以 `SYSTEM` 身分執行，其代理和網路環境可能與目前使用者手動執行 PowerShell 時不同。
 
-**方式二：通过“Cloudflare CDN 访问设置”**
-1. 进入 **“Cloudflare CDN 访问设置”** 页面。
-2. 在 **“PROXYIP”** 输入框中，填入你的子域名（例如 `cf.yourdomain.com`）。
-3. 点击 **“保存”** 按钮。
+將其改為 `false` 後必須重新執行 setup；setup 會清除本專案已經註冊的排程任務，但仍可隨時手動執行 `main.py`。重新改回 `true` 並執行 setup 即可恢復自動任務。
 
-该域名会自动解析到当前最优的多个 IP 之一，实现零配置动态切换。
+### 結果與多終端同步
 
-### 💡 为什么这样对接更有效？
-- **低延迟**：`main.py` 已经通过 TCP 握手筛选出了延迟最低的节点。
-- **高带宽**：结果经过真实 `curl` 下载测试，排在前面的节点具有更强的并发吞吐能力。
-- **高可用**：通过 `AVAILABILITY_CHECK_API` 过滤了那些能 Ping 通但无法正常通过代理请求的无效 IP。
-- **自动更新**：DNS 记录随优选结果自动刷新，无需手动修改配置。
+- `ip.local.txt` - 目前終端的本機優選結果，每次執行覆蓋
+- `ip.txt` - GitHub 上的多終端彙總結果，不會作為本機輸入覆蓋
+- `GITHUB_SYNC_TOP_N` - 單一終端最多上報的節點數，預設為 5
+- `GITHUB_SYNC_MAX_RETRIES` - GitHub 自動同步失敗時的外層重試次數；設為 `0` 可關閉 GitHub 同步
 
-### 注意事项
-- **GitHub 缓存**：GitHub Raw 链接有一定的 CDN 缓存时间（通常为 5 分钟左右）。如果刚运行完脚本发现链接内容没变，请稍等片刻。
-- **网络环境**：建议在你的主运行环境（如家庭软路由或主力 PC）运行此脚本，因为不同网络环境下筛选出的最优 IP 可能不同。
-- **DNS 生效时间**：修改 DNS 记录后受 TTL 影响，全球生效可能需要几分钟，但通常 Cloudflare 更新是实时的。
+遠端每行會附加終端標識，例如 `IP:連接埠#地區|濟南聯通`。同步程式只識別並替換相同 `GITHUB_SYNC_FIELD_ID` 的行；多個終端同時寫入時會重新拉取、合併並重試。
+
+公開結果倉庫可透過 `https://raw.githubusercontent.com/<使用者名稱>/BestCfCdn/refs/heads/main/ip.txt` 讀取彙總檔案。私有倉庫不要把 Token 串接到 URL 查詢參數中，應使用支援 `Authorization` 請求標頭的用戶端，或改用 Cloudflare DNS 發佈結果。
+
+### 常見問題
+
+#### setup 會自動使用虛擬環境嗎？
+
+會。setup 會優先使用專案中的 `.venv`，不存在時自動建立；排程任務也會直接呼叫該環境中的 Python。
+
+#### GitHub 暫時無法存取時還能部署嗎？
+
+可以。自動更新遇到單純網路故障時會繼續使用目前本機版本；如果偵測到設定和結果檔案之外的本機程式碼改動、分支分叉或設定損壞等風險，setup 會停止，避免覆蓋本機檔案。
+
+#### 已有舊版 config.json 會被覆蓋嗎？
+
+不會直接覆蓋。安全更新成功後會把新版範本中的新增欄位補入，同時保留仍受支援的本機值。非常舊的安裝第一次升級時，可先執行一次 `update_fork.ps1` 或 `update_fork.sh`，之後只使用 setup。
+
+#### 為什麼改為手動模式後任務仍然存在？
+
+修改 `ENABLE_SCHEDULED_TASK` 後還需要重新執行 setup，腳本才會套用設定並刪除舊任務。
+
+#### GitHub 同步失敗應該檢查什麼？
+
+確認 Token 具有 Contents 讀寫權限、倉庫名稱和分支正確、`GITHUB_SYNC_FIELD_ID` 合法，並檢查目前網路是否能夠存取 GitHub。不要在 Issue 或日誌中公開 Token。
+
+#### 為什麼不建議 ZIP 安裝？
+
+ZIP 版本缺少 Git 歷史，setup 會略過自動更新。希望長期只操作 setup 時，請使用 Git 複製版本。
+
+### 適用範圍
+
+- ✅ Windows 10 / 11 與常見 Linux 發行版
+- ✅ Python 3.9 或更高版本、Git 與 curl
+- ✅ Cloudflare CDN、EdgeTunnel 等需要優選入口節點的代理情境
+- ✅ 單終端本機篩選或多地區、多營運商終端聯合維護
+- ✅ 專案採用 [MIT License](./LICENSE)
 
 ---
 
-## ❓ 常见问题
+## 🇺🇸 English
 
-<details>
-<summary>🌐 代理环境影响</summary>
+A cross-platform IP selection tool for Cloudflare CDN and EdgeTunnel proxy scenarios. It selects and publishes endpoints; it is not a proxy service itself.
 
-**会影响，尤其全局/TUN 模式。**
+### Features
 
-| 测试阶段 | 是否走代理 | 说明 |
-| :--- | :--- | :--- |
-| TCP 延迟测试 (Socket) | ❌ 直连 | 反映本机到节点的 RTT |
-| HTTP 检测 (requests) | ❌ 直连 | 过滤非Cloudflare节点 |
-| 带宽测速 (curl) | ❌ 直连 | 反映本机到 CDN 的速度 |
-| API 请求类 (requests) | ✅ 跟随系统代理 | 获取节点、可用性、微信通知等 |
-| Git 推送 (git) | ✅ 跟随系统代理 | 涉及 `github.com` 等 |
+- ✅ **Multi-source aggregation** - Reads multiple public sources and adapts to plain text, JSON, Chinese region names, emoji flags, and other common formats
+- ⚡ **Layered quality checks** - Applies port and region prefilters, TCP success-rate checks, proxy availability tests, HTTP latency and jitter measurements, and real bandwidth tests
+- ⚖️ **Proxy experience scoring** - Prioritizes HTTP responsiveness while balancing bandwidth, jitter, and TCP connection latency instead of maximizing one metric
+- 🇨🇳 **Mainland China defaults** - Ships with defaults tuned for cross-border proxy use from mainland China, with inline comments for further adjustment
+- 🏆 **Best endpoint output** - Keeps the five best overall endpoints by default and also supports per-country selection
+- 📤 **Safe multi-device sync** - Each device replaces only its own lines in the remote `ip.txt`, with a default limit of five and no overwrites of other devices
+- ⏱️ **Peak/off-peak scheduling** - Runs every 15 minutes from 18:00 to 24:00 Beijing time and every 30 minutes otherwise, with overlap protection
+- 🖥️ **One-command setup and updates** - Uses setup as the only routine entrypoint on Windows and Linux to create `.venv`, install dependencies, apply scheduling, and update safely
+- ☁️ **Optional result publishing** - Can update Cloudflare DNS, sync to GitHub, and send WxPusher error notifications, with each feature configured independently
+- 🔒 **Local configuration protection** - Keeps token-bearing `config.json` and local results out of Git and merges supported local values during updates
 
-> 各阶段对应域名见上方“涉及域名”列表。
+### Installation
 
-**涉及域名：**  
-`cm.edu.kg` · `ipinfo.io` · `090227.xyz` · `cloudflare.com` · `zjiecode.com` · `pages.dev` · `ipapi.is` · `github.com` · `githubusercontent.com`
+#### 1. Get the project
 
-**建议：**  
-1. 检查本机能否直连上述域名 → 能通设 `DIRECT`，不通设 `PROXY`  
-2. **运行程序时关闭全局模式 / TUN 模式**  
-3. 不确定网络情况就直接**退出代理工具再运行**
+To sync results to GitHub, first fork this repository to create a result repository. To let setup retrieve project updates directly, clone the upstream repository and point the sync configuration to your own fork.
 
-</details>
+```bash
+git clone https://github.com/uxudjs/BestCfCdn.git
+cd BestCfCdn
+```
 
-<details>
-<summary>🔌 依赖与安装</summary>
+If you clone your own fork instead, update it with GitHub's `Sync fork` first. Setup pulls only the cloned repository's `origin/main`; it does not synchronize the upstream repository on GitHub. A ZIP copy can run but cannot be updated automatically by setup.
 
-1. **提示 `ModuleNotFoundError: No module named 'requests'` 或访问 PyPI 超时**
-   Windows：
-   ```powershell
-   .\.venv\Scripts\python.exe -m pip install --timeout 120 --retries 10 -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple -r requirements.txt
-   .\.venv\Scripts\python.exe -m pip install --timeout 120 --retries 10 -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple brotlicffi
-   ```
-   Linux：
-   ```bash
-   ./.venv/bin/python -m pip install --timeout 120 --retries 10 -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple -r requirements.txt
-   ./.venv/bin/python -m pip install --timeout 120 --retries 10 -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple brotlicffi
-   ```
+#### 2. Run setup for the first time
 
-2. **带宽测速被跳过**  
-   请确保系统已安装 `curl` 且位于 PATH 环境变量中。
+Windows PowerShell:
 
-3. **Linux 下 `git_sync.sh` 权限被拒绝**  
-   执行 `chmod +x git_sync.sh` 赋予执行权限。
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\setup.ps1
+```
 
-</details>
+Linux:
 
-<details>
-<summary>📤 GitHub 推送与同步</summary>
+```bash
+bash setup.sh
+```
 
-4. **GitHub 推送失败**  
-   - 检查 `config.json` 中的 Token、仓库、分支和终端名称是否正确。
-   - 确保 fine-grained Token 具备 Contents 读写权限，或 classic Token 具备 `repo` 权限。
+When `config.json` is missing, setup first attempts a safe update, creates the file from the current version's template, and exits. It does not install dependencies, register a scheduled task, or start endpoint selection.
 
-5. **GitHub 推送时提示权限错误或 403**  
-   - 请确认令牌具有 `repo` 权限，且未过期。创建令牌时务必勾选 **repo** 全部子项，并将过期时间设为 **No expiration**。
+#### 3. Edit config.json
 
-6. **多个终端会互相覆盖吗？**
-   - 不会。程序按 `GITHUB_SYNC_FIELD_ID` 只替换本终端节点，并用文件 SHA 检测并发冲突后重新合并。
+Open the generated `config.json` and review at least these settings:
 
-7. **为什么远端标签多了 `|济南联通`？**
-   - 这是终端所有权标识，仍属于 `IP:端口#标签` 格式，用于下一次精准替换本终端字段。
+- `GITHUB_SYNC_MAX_RETRIES` - Keep it above `0` when GitHub sync is needed; set it to `0` otherwise
+- `GITHUB_SYNC_FIELD_ID` - When GitHub sync is enabled, set a unique device name such as `Jinan-Unicom`; it cannot contain whitespace, `|`, or `#`
+- `GITHUB_SYNC_TOKEN` - When GitHub sync is enabled, use a fine-grained token limited to Contents read and write access on the target repository
+- `GITHUB_SYNC_REPOSITORY` - When GitHub sync is enabled, set the target result repository in `owner/repository` format
+- `ENABLE_SCHEDULED_TASK` - `true` for automatic runs or `false` for manual-only mode
+- `CF_ENABLED` - Disabled by default; when enabled, fill in `CF_API_TOKEN`, `CF_ZONE_ID`, and `CF_DNS_RECORD_NAME`, grant the token Zone DNS edit access, and review `DNS_RECORD_TYPE`
+- `ENABLE_WXPUSHER` - Disabled by default; when enabling error notifications, fill in `WXPUSHER_APP_TOKEN` and `WXPUSHER_UIDS`
 
-</details>
+`DNS_RECORD_TYPE` defaults to `TXT`, with one `IP:port` value in each record; only `A` mode publishes plain IPv4 addresses. To use the hostname directly as an EdgeTunnel entrypoint, select `A` and keep `CF_PROXIED` set to `false`.
 
-<details>
-<summary>☁️ Cloudflare DNS 更新</summary>
+All other filtering, scoring, concurrency, and timeout options include inline comments. Edit only your local `config.json`; Git exclusion is not encryption, so never put a real token in `config.example.json`, commit it to GitHub, or expose it in logs.
 
-8. **Cloudflare DNS 更新失败**  
-   - 检查 `CF_API_TOKEN` 权限、`CF_ZONE_ID`、`CF_DNS_RECORD_NAME` 是否正确。  
-   - 程序内置重试机制，全部失败时会通过微信通知（如已启用）。
+#### 4. Run setup again
 
-9. **为什么我的 DNS 记录数量少于 `DNS_UPDATE_TARGET_COUNT`？**  
-   如果你启用了 `FILTER_IPV6_AVAILABILITY`，且候选池中符合端口、落地类型、国家过滤等条件的节点总数不足你设定的 DNS 更新目标数量，则 DNS 只会更新实际可用的节点数。这是正常现象，你可以通过增加 `BANDWIDTH_CANDIDATES` 来扩大候选池。
+Save the configuration and run the same setup command again. The script creates the project `.venv`, installs dependencies, creates or removes the scheduled task according to the configuration, and then asks whether to run a test.
 
-10. **开启了风险等级过滤，但 DNS 更新似乎没有按预期过滤？**  
-    - 检查 `DNS_IP_RISK_FILTER_ENABLED` 是否为 `true`，以及 `DNS_IP_RISK_MAX_LEVEL` 是否设置正确。  
-    - 若 API 请求失败或所有节点均被过滤，程序会**自动回退到无风险过滤的列表**，并发送微信通知。  
-    - 可以查看运行日志中的过滤统计信息确认过滤数量。
+For future code updates, schedule changes, or dependency repairs, keep using setup as the only routine command.
 
-</details>
+#### 5. Run manually (optional)
 
-<details>
-<summary>🔍 检测与过滤</summary>
+Windows PowerShell:
 
-11. **TCP 测试无节点通过**  
-若所有节点的 TCP 连接成功率均低于 `MIN_SUCCESS_RATE`，程序将直接退出并提示检查网络或降低成功率阈值。此为第一道硬性门槛，无回退机制。
+```powershell
+.\.venv\Scripts\python.exe -X utf8 main.py
+```
 
-12. **可用性检测全部失败**  
-若 API 接口异常导致可用性检测通过率为 0%，程序会自动跳过此步骤并回退到 TCP 筛选结果，同时发送微信提醒（如已配置）。
+Linux:
 
-13. **HTTP检测全部失败**  
-若所有候选节点均返回非 `400` / `cloudflare` 或连接失败，程序将降级使用过滤前列表（即可用性检测通过的结果），并发送微信通知（如已启用）。
+```bash
+./.venv/bin/python main.py
+```
 
-14. **带宽测速全部失败**  
-若 curl 测速多次重试仍无有效带宽数据，程序只会在已经通过后续可用性/HTTP 检测的候选中，按现有延迟指标重新归一评分；不会重新选回已淘汰节点。
+You do not need to activate `.venv`. A manual run starts immediately and is not restricted by the peak/off-peak schedule.
 
-</details>
+### Automatic and manual modes
 
-<details>
-<summary>🗺️ IP 地区校准</summary>
+`ENABLE_SCHEDULED_TASK` defaults to `true`. Setup creates a Windows Task Scheduler entry or a Linux cron entry, and `scheduled_run.py` checks every 15 minutes whether the current period is peak or off-peak. Scheduled tasks run only endpoint selection; code updates are checked only when the user runs setup.
 
-15. **IP 地区校准是做什么的？**  
-    - 程序会通过 ipinfo.io 查询每个节点 IP 的真实国家代码、城市和 ISP，并缓存到 `ipinfo_cache.txt`。
-    - 校准后节点标签只保留国家代码（如 `#HK`），不影响原有筛选逻辑。
+The Windows scheduled task runs as `SYSTEM`, so its proxy and network environment may differ from an interactive PowerShell session.
 
-16. **校准速度很慢怎么办？**  
-    - 可适当降低 `IP_CALIBRATION_CONCURRENCY`（如 100），或增加 `IP_CALIBRATION_MIN_INTERVAL`（如 0.15）。
-    - 若不需要校准，将 `IP_CALIBRATION_ENABLED` 设为 `false` 即可跳过。
+After changing it to `false`, run setup again. Setup removes previously registered tasks for this project while keeping manual execution available. Change it back to `true` and rerun setup to restore automation.
 
-17. **收到"token可能已耗尽"的微信通知？**  
-    - 只有所有 Token 都触发 ipinfo.io 的速率限制（429）时才会发送此通知，单个 Token 被限速会自动切换，不影响查询。
-    - 可在 [ipinfo.io](https://ipinfo.io/) 申请更多免费 Token 放入 `valid_tokens.txt`。
+### Results and multi-device sync
 
-</details>
+- `ip.local.txt` - Local results for the current device, overwritten on every run
+- `ip.txt` - Aggregated multi-device results on GitHub; it is never used to overwrite local input
+- `GITHUB_SYNC_TOP_N` - Maximum endpoints uploaded by one device; defaults to 5
+- `GITHUB_SYNC_MAX_RETRIES` - Outer retry count for automatic GitHub sync failures; set it to `0` to disable GitHub sync
 
-<details>
-<summary>🔒 隐私与其他</summary>
+Each remote line includes a device identifier, for example `IP:port#region|Jinan-Unicom`. The sync process replaces only lines with the same `GITHUB_SYNC_FIELD_ID`; concurrent updates are fetched, merged, and retried.
 
-18. **隐私保护**  
-   仓库的 `.gitignore` 会忽略 `config.json`、`valid_tokens.txt`、`ip.local.txt` 和运行缓存/日志；部署脚本也会补齐这些规则。`git_sync.ps1` 与 `git_sync.sh` 是不含密钥的程序入口，会正常纳入版本控制。
+For a public result repository, read the aggregate from `https://raw.githubusercontent.com/<username>/BestCfCdn/refs/heads/main/ip.txt`. For a private repository, never append a token to the URL query string; use a client that supports the `Authorization` header or publish through Cloudflare DNS instead.
 
-</details>
+### FAQ
+
+#### Does setup use the virtual environment automatically?
+
+Yes. Setup prefers the project `.venv` and creates it when missing. Scheduled tasks also call the Python executable inside that environment directly.
+
+#### Can setup continue when GitHub is temporarily unreachable?
+
+Yes. A network-only update failure falls back to the current local version. Setup stops on unsafe conditions such as local code changes outside configuration and result files, diverged branches, or invalid configuration to avoid overwriting local files.
+
+#### Will an existing config.json be overwritten?
+
+Not directly. After a safe update succeeds, new fields from the updated template are added while supported local values are preserved. For a very old installation, run `update_fork.ps1` or `update_fork.sh` once for the first upgrade, then use setup only.
+
+#### Why does a scheduled task remain after switching to manual mode?
+
+Run setup again after changing `ENABLE_SCHEDULED_TASK`; that is when the script applies the setting and removes the old task.
+
+#### What should I check when GitHub sync fails?
+
+Verify that the token has Contents read and write access, the repository and branch are correct, `GITHUB_SYNC_FIELD_ID` is valid, and the network can reach GitHub. Never expose a token in an Issue or log.
+
+#### Why is a ZIP installation not recommended?
+
+A ZIP copy has no Git history, so setup skips automatic updates. Use a Git clone if you want setup to remain the only routine command.
+
+### Compatibility
+
+- ✅ Windows 10 / 11 and common Linux distributions
+- ✅ Python 3.9 or newer, Git, and curl
+- ✅ Cloudflare CDN, EdgeTunnel, and similar proxy scenarios that need optimized entry endpoints
+- ✅ Local selection on one device or shared maintenance across regions and network providers
+- ✅ Released under the [MIT License](./LICENSE)
 
 ---
 
-## 🙏 致谢
+## Star History
 
-- 节点数据源 & 检测 API：[cmliussss](https://github.com/cmliussss)
-- IP 风险检测 API：[ipapi.is](https://ipapi.is/)
-- IP 地区校准：[ipinfo.io](https://ipinfo.io/)
-- 微信通知服务：[WxPusher](https://wxpusher.zjiecode.com/)
-
----
-
-**许可证**：本项目采用 [MIT License](https://opensource.org/licenses/MIT) 开源。
+[![Star History Chart](https://api.star-history.com/svg?repos=uxudjs/BestCfCdn&type=Date)](https://star-history.com/#uxudjs/BestCfCdn&Date)

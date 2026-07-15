@@ -203,7 +203,7 @@ def load_config():
         "WXPUSHER_API_URL": "https://wxpusher.zjiecode.com/api/send/message",
         "NOTIFY_TIMEOUT": 8,
         "NOTIFY_CONNECT_TIMEOUT": 5,
-        "CF_ENABLED": True,
+        "CF_ENABLED": False,
         "CF_API_TOKEN": "your_CF_API_TOKEN",
         "CF_ZONE_ID": "your_CF_ZONE_ID",
         "CF_DNS_RECORD_NAME": "your_CF_DNS_RECORD_NAME",
@@ -247,11 +247,11 @@ def load_config():
         "FILTER_IPV6_AVAILABILITY": True,
         "FILTER_BLOCKED_COUNTRIES_ENABLED": True,
         "BLOCKED_COUNTRIES": [
-            "BD", "BI", "BY", "CD", "CF", "CN", "CU", "DE", "ET", "HK",
-            "IR", "KP", "LY", "MO", "NG", "NL", "PK", "RU", "SD", "SO",
-            "SY", "TH", "TW", "UA", "VE", "VN", "YE", "ZW"
+            "BD", "BI", "BY", "CD", "CF", "CN", "CU", "ET",
+            "IR", "KP", "LY", "NG", "PK", "SD", "SO", "SY",
+            "VE", "YE", "ZW"
         ],
-        "DNS_IP_RISK_FILTER_ENABLED": False,
+        "DNS_IP_RISK_FILTER_ENABLED": True,
         "DNS_IP_RISK_MAX_LEVEL": "高风险",
         "DNS_UPDATE_TARGET_COUNT": 5,
         "BANDWIDTH_SIZE_MB": 2.0,
