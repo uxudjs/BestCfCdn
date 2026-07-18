@@ -187,7 +187,7 @@ def load_config():
     """加载 config.json 配置文件，缺失必填字段时抛出异常"""
     defaults = {
         "USE_GLOBAL_MODE": True,
-        "GLOBAL_TOP_N": 5,
+        "GLOBAL_TOP_N": 3,
         "PER_COUNTRY_TOP_N": 1,
         "BANDWIDTH_CANDIDATES": 150,
         "TCP_PROBES": 4,
@@ -257,7 +257,7 @@ def load_config():
         ],
         "DNS_IP_RISK_FILTER_ENABLED": True,
         "DNS_IP_RISK_MAX_LEVEL": "高风险",
-        "DNS_UPDATE_TARGET_COUNT": 5,
+        "DNS_UPDATE_TARGET_COUNT": 3,
         "BANDWIDTH_SIZE_MB": 2.0,
         "BANDWIDTH_TIMEOUT": 8,
         "BANDWIDTH_RETRY_MAX": 2,

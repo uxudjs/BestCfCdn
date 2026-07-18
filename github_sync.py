@@ -33,7 +33,7 @@ def validate_config(config):
     branch = str(config.get("GITHUB_SYNC_BRANCH", "main")).strip()
     remote_path = str(config.get("GITHUB_SYNC_REMOTE_PATH", "ip.txt")).strip()
     field_id = str(config.get("GITHUB_SYNC_FIELD_ID", "")).strip()
-    top_n = int(config.get("GITHUB_SYNC_TOP_N", 5))
+    top_n = int(config.get("GITHUB_SYNC_TOP_N", 3))
     retries = int(config.get("GITHUB_SYNC_CONFLICT_RETRIES", 5))
 
     placeholders = ("your_", "请填写")

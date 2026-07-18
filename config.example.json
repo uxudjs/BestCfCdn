@@ -7,10 +7,10 @@
     "_comment_MAINLAND_PROFILE": "默认参数已按中国大陆跨境链路优化：北京时间、较宽松超时、分级重试和适中并发",
 
     "USE_GLOBAL_MODE": true,
-    "_comment_USE_GLOBAL_MODE": "true=全局最优5个；false=每个国家最优1个",
+    "_comment_USE_GLOBAL_MODE": "true=全局最优3个；false=每个国家最优1个",
 
-    "GLOBAL_TOP_N": 5,
-    "_comment_GLOBAL_TOP_N": "全局模式下最终保留的节点数量（每个终端默认只上报最优5个）",
+    "GLOBAL_TOP_N": 3,
+    "_comment_GLOBAL_TOP_N": "全局模式下最终保留的节点数量（每个终端默认只上报最优3个）",
 
     "PER_COUNTRY_TOP_N": 1,
     "_comment_PER_COUNTRY_TOP_N": "分国家模式下每个国家保留的节点数量",
@@ -207,8 +207,8 @@
     "DNS_IP_RISK_MAX_LEVEL": "高风险",
     "_comment_DNS_IP_RISK_MAX_LEVEL": "【仅DNS】允许的最高风险等级（极度纯净 / 纯净 / 轻微风险 / 高风险 / 极度危险）",
 
-    "DNS_UPDATE_TARGET_COUNT": 5,
-    "_comment_DNS_UPDATE_TARGET_COUNT": "DNS 更新时最多写入5个最优 IP，与终端上报数量保持一致",
+    "DNS_UPDATE_TARGET_COUNT": 3,
+    "_comment_DNS_UPDATE_TARGET_COUNT": "DNS 更新时最多写入3个最优 IP，与终端上报数量保持一致",
 
     "BANDWIDTH_SIZE_MB": 2.0,
     "_comment_BANDWIDTH_SIZE_MB": "带宽测速下载文件大小（MB）",
@@ -304,7 +304,7 @@
     "GITHUB_SYNC_REMOTE_PATH": "ip.txt",
     "_comment_GITHUB_SYNC_REMOTE_PATH": "多终端汇总文件在仓库中的路径",
 
-    "GITHUB_SYNC_TOP_N": 5,
+    "GITHUB_SYNC_TOP_N": 3,
     "_comment_GITHUB_SYNC_TOP_N": "本终端每次最多上报的最优节点数",
 
     "GITHUB_SYNC_CONFLICT_RETRIES": 8,
