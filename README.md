@@ -20,7 +20,7 @@
 - ⚖️ **体验评分** - 综合响应速度、稳定性和带宽，避免只追求单项最高值
 - 🏆 **最优输出** - 全局模式默认保留综合体验最好的 3 个节点
 - 📤 **多终端同步** - 每台终端只替换远端 `ip.txt` 中属于自己的记录
-- ⏱️ **峰谷调度** - 北京时间 18:00–24:00 每 30 分钟运行，其余时段每 60 分钟运行
+- ⏱️ **峰谷调度** - 北京时间 18:00–24:00 每 60 分钟运行，其余时段每 180 分钟运行
 - 🖥️ **一键部署** - setup 自动更新代码、创建 `.venv`、安装依赖并管理定时任务
 - ☁️ **可选发布** - 支持 GitHub、Cloudflare DNS 和 WxPusher 异常通知
 
@@ -120,7 +120,7 @@ bash setup.sh
 - ⚖️ **體驗評分** - 綜合回應速度、穩定性和頻寬，避免只追求單項最高值
 - 🏆 **最佳輸出** - 全域模式預設保留綜合體驗最好的 3 個節點
 - 📤 **多終端同步** - 每台終端只替換遠端 `ip.txt` 中屬於自己的記錄
-- ⏱️ **峰谷排程** - 北京時間 18:00–24:00 每 30 分鐘執行，其餘時段每 60 分鐘執行
+- ⏱️ **峰谷排程** - 北京時間 18:00–24:00 每 60 分鐘執行，其餘時段每 180 分鐘執行
 - 🖥️ **一鍵部署** - setup 自動更新程式碼、建立 `.venv`、安裝依賴並管理排程任務
 - ☁️ **可選發佈** - 支援 GitHub、Cloudflare DNS 和 WxPusher 異常通知
 
@@ -220,7 +220,7 @@ A cross-platform IP selection tool for Cloudflare CDN and EdgeTunnel proxy scena
 - ⚖️ **Experience scoring** - Balances responsiveness, stability, and bandwidth instead of maximizing one metric
 - 🏆 **Best endpoint output** - Keeps the three best overall endpoints by default
 - 📤 **Multi-device sync** - Each device replaces only its own lines in the remote `ip.txt`
-- ⏱️ **Peak/off-peak schedule** - Runs every 30 minutes from 18:00 to 24:00 Beijing time and every 60 minutes otherwise
+- ⏱️ **Peak/off-peak schedule** - Runs every 60 minutes from 18:00 to 24:00 Beijing time and every 180 minutes otherwise
 - 🖥️ **One-command setup** - Setup updates code, creates `.venv`, installs dependencies, and manages scheduled tasks
 - ☁️ **Optional publishing** - Supports GitHub, Cloudflare DNS, and WxPusher error notifications
 
