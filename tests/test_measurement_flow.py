@@ -18,6 +18,132 @@ class MeasurementFlowTests(unittest.TestCase):
             f"{size}\t{time_starttransfer}\t{time_total}\n"
         )
 
+    def test_fetch_chain_template_requests_sing_box_copy_and_parses_original_url(self):
+        original = (
+            "https://proxy.example.com/sub?token=top-secret&target=mixed#section"
+        )
+        response = mock.MagicMock(content=b"{}", text="{}")
+        template = object()
+
+        with mock.patch.multiple(
+            main, CHAIN_PROXY_SUBSCRIPTION_URL=original
+        ), mock.patch("main.requests.get", return_value=response) as request, mock.patch(
+            "main.extract_chain_template", return_value=template
+        ) as extract:
+            result = main.fetch_chain_template()
+
+        self.assertIs(template, result)
+        self.assertEqual(
+            "https://proxy.example.com/sub?token=top-secret&target=singbox#section",
+            request.call_args.args[0],
+        )
+        extract.assert_called_once_with("{}", original)
+
+    def test_failed_chain_preflight_stops_before_node_fetch_or_tcp_test(self):
+        with mock.patch.multiple(
+            main,
+            CHAIN_PROXY_TEST_ENABLED=True,
+            CHAIN_PROXY_SUBSCRIPTION_URL=(
+                "https://proxy.example.com/sub?token=top-secret"
+            ),
+            ADDITIONAL_SOURCES=[{"enabled": True, "url": "nodes"}],
+        ), mock.patch("main.fetch_chain_template", return_value=object()), mock.patch(
+            "main.resolve_sing_box_path", return_value="sing-box"
+        ), mock.patch(
+            "main.check_sing_box_config",
+            side_effect=main.ChainProxyError("配置检查失败"),
+        ), mock.patch("main.fetch_additional_source") as fetch_nodes, mock.patch(
+            "main.test_node"
+        ) as tcp_test, mock.patch(
+            "main.send_wxpusher_notification"
+        ), redirect_stdout(io.StringIO()) as output:
+            with self.assertRaises(SystemExit) as stopped:
+                main.main()
+
+        self.assertEqual(1, stopped.exception.code)
+        fetch_nodes.assert_not_called()
+        tcp_test.assert_not_called()
+        self.assertNotIn("top-secret", output.getvalue())
+
+    def test_disabled_chain_preflight_skips_subscription_core_and_config(self):
+        with mock.patch.object(
+            main, "CHAIN_PROXY_TEST_ENABLED", False
+        ), mock.patch("main.fetch_chain_template") as fetch, mock.patch(
+            "main.resolve_sing_box_path"
+        ) as resolve, mock.patch("main.check_sing_box_config") as check:
+            result = main.preflight_chain_proxy()
+
+        self.assertEqual((None, None), result)
+        fetch.assert_not_called()
+        resolve.assert_not_called()
+        check.assert_not_called()
+
+    def test_successful_chain_preflight_is_reused_by_runtime(self):
+        events = []
+        template = object()
+
+        def fetch_template():
+            events.append("subscription")
+            return template
+
+        def resolve_core(*args):
+            events.append("core")
+            return "sing-box"
+
+        def check_core(*args):
+            events.append("check")
+
+        def fetch_nodes(*args):
+            events.append("nodes")
+            return ["104.16.0.1:443#US"]
+
+        def test_node(node):
+            events.append("tcp")
+            return node, 0.1, "US", 4
+
+        class StopAtRuntime:
+            def __init__(self, core_path, runtime_template, candidates):
+                events.append(("runtime", core_path, runtime_template, candidates))
+
+            def __enter__(self):
+                raise RuntimeError("stop after runtime reuse")
+
+            def __exit__(self, *args):
+                return False
+
+        settings = {
+            "CHAIN_PROXY_TEST_ENABLED": True,
+            "ADDITIONAL_SOURCES": [{"enabled": True, "url": "nodes"}],
+            "PRE_FILTER_PORT_ENABLED": False,
+            "PRE_FILTER_BLOCKED_ENABLED": False,
+            "FILTER_COUNTRIES_ENABLED": False,
+            "USE_GLOBAL_MODE": True,
+            "BANDWIDTH_CANDIDATES": 1,
+        }
+        with mock.patch.multiple(main, **settings), mock.patch(
+            "main.fetch_chain_template", side_effect=fetch_template
+        ) as fetch, mock.patch(
+            "main.resolve_sing_box_path", side_effect=resolve_core
+        ) as resolve, mock.patch(
+            "main.check_sing_box_config", side_effect=check_core
+        ) as check, mock.patch(
+            "main.fetch_additional_source", side_effect=fetch_nodes
+        ), mock.patch("main.calibrate_regions"), mock.patch(
+            "main.test_node", side_effect=test_node
+        ), mock.patch("main.SingBoxRuntime", StopAtRuntime), redirect_stdout(
+            io.StringIO()
+        ):
+            with self.assertRaisesRegex(RuntimeError, "runtime reuse"):
+                main.main()
+
+        fetch.assert_called_once_with()
+        resolve.assert_called_once()
+        check.assert_called_once_with("sing-box", template)
+        self.assertEqual(
+            ["subscription", "core", "check", "nodes", "tcp"], events[:5]
+        )
+        self.assertEqual(("runtime", "sing-box", template), events[5][:3])
+
     def test_github_sync_child_process_forces_utf8_and_safe_decoding(self):
         process = mock.MagicMock()
         process.returncode = 1

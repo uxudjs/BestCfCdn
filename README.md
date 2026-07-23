@@ -64,18 +64,18 @@ bash setup.sh
 - `CF_ENABLED` - 启用 DNS 更新时填写 Cloudflare Token、Zone ID 和记录名称
 - `ENABLE_WXPUSHER` - 启用异常通知时填写 App Token 和 UID
 - `CHAIN_PROXY_TEST_ENABLED` - `true` 启用链式测速；默认 `false`，普通用户保持原流程
-- `CHAIN_PROXY_SUBSCRIPTION_URL` - CfGfwAX 的 mixed 订阅地址，例如 `https://代理域名/sub?token=***&target=mixed`
-- `CHAIN_PROXY_CORE_PATH` - sing-box 可执行文件路径；留空时自动从 `PATH` 查找
+- `CHAIN_PROXY_SUBSCRIPTION_URL` - CfGfwAX 订阅地址；程序只在请求副本中自动设置 `target=singbox`，不会改写原地址
+- `CHAIN_PROXY_CORE_PATH` - sing-box 可执行文件路径；可留空，由 setup 自动发现或安装后写入
 - `CHAIN_PROXY_TEST_SAMPLES` / `CHAIN_PROXY_MIN_SUCCESS_RATE` - 默认每节点测试 3 次，至少成功 2 次
 - `CHAIN_PROXY_WORKERS` - 默认低并发 4，避免共享 SOCKS5 拥塞干扰排名
 
 `GITHUB_SYNC_FIELD_ID` 不能包含任何空白字符、`|` 或 `#`。不要把真实 Token 提交到 GitHub。
 
-链式测速只支持未启用 ECH/TLS 分片的 CfGfwAX VLESS + WebSocket + TLS 节点。请先在 CGAX-Pages 后台启用 SOCKS5 和“全局代理”，并按 [sing-box 官方说明](https://sing-box.sagernet.org/installation/package-manager/)安装核心。程序会验证 `/video/` 参数确实为全局 SOCKS5，过滤订阅中的外部节点，将仅地址不同的多条 CfGfwAX 节点归并为一个模板，再替换为本轮 TCP 前 150 个候选；如果出现多个不同模板、链式参数无效或核心不可用，将停止而不会降级为直连。链式排名按当轮候选池相对计算：HTTP 延迟 40%、带宽 30%、抖动 20%、成功率 10%，不再套用直连模式的固定延迟门槛。
+链式测速只支持未启用 ECH/TLS 分片的 CfGfwAX VLESS + WebSocket + TLS 节点。请先在 CGAX-Pages 后台启用 SOCKS5 和“全局代理”。setup 会按“配置路径 → 项目 `.runtime/sing-box/` → `PATH`”查找 sing-box；均未找到时，为 Windows/Linux x64 或 arm64 下载 SagerNet 官方最新稳定版，校验 SHA-256 和版本后写入项目目录及 `config.json`。已有可用核心不会自动升级。运行 `main.py` 时，程序会在抓取节点或测速前请求原生 sing-box 订阅并检查临时配置；它会验证 `/video/` 参数确实为全局 SOCKS5，过滤外部节点，将仅地址不同的多条 CfGfwAX 节点归并为一个模板，再替换为本轮 TCP 前 150 个候选。多个不同模板、链式参数无效或核心不可用都会立即停止，不会降级为直连。链式排名按当轮候选池相对计算：HTTP 延迟 40%、带宽 30%、抖动 20%、成功率 10%，不再套用直连模式的固定延迟门槛。
 
 #### 4. 完成部署
 
-保存配置后再次运行 setup。脚本会创建项目虚拟环境、安装依赖、应用定时设置，并询问是否立即测试。
+保存配置后再次运行 setup。脚本会创建项目虚拟环境；链式测速启用时先准备并验证 sing-box，成功后才继续安装依赖、应用定时设置，并询问是否立即测试。
 
 ### 运行说明
 
@@ -164,18 +164,18 @@ bash setup.sh
 - `CF_ENABLED` - 啟用 DNS 更新時填寫 Cloudflare Token、Zone ID 和記錄名稱
 - `ENABLE_WXPUSHER` - 啟用異常通知時填寫 App Token 和 UID
 - `CHAIN_PROXY_TEST_ENABLED` - `true` 啟用鏈式測速；預設 `false`，一般使用者維持原流程
-- `CHAIN_PROXY_SUBSCRIPTION_URL` - CfGfwAX mixed 訂閱地址，例如 `https://代理網域/sub?token=***&target=mixed`
-- `CHAIN_PROXY_CORE_PATH` - sing-box 執行檔路徑；留空時自動從 `PATH` 尋找
+- `CHAIN_PROXY_SUBSCRIPTION_URL` - CfGfwAX 訂閱地址；程式只在請求副本中自動設定 `target=singbox`，不會改寫原地址
+- `CHAIN_PROXY_CORE_PATH` - sing-box 執行檔路徑；可留空，由 setup 自動尋找或安裝後寫入
 - `CHAIN_PROXY_TEST_SAMPLES` / `CHAIN_PROXY_MIN_SUCCESS_RATE` - 預設每節點測試 3 次，至少成功 2 次
 - `CHAIN_PROXY_WORKERS` - 預設低併發 4，避免共用 SOCKS5 壅塞干擾排名
 
 `GITHUB_SYNC_FIELD_ID` 不能包含任何空白字元、`|` 或 `#`。不要把真實 Token 提交到 GitHub。
 
-鏈式測速僅支援未啟用 ECH/TLS 分片的 CfGfwAX VLESS + WebSocket + TLS 節點。請先在 CGAX-Pages 後台啟用 SOCKS5 和「全域代理」，並依 [sing-box 官方說明](https://sing-box.sagernet.org/installation/package-manager/)安裝核心。程式會驗證 `/video/` 參數確實為全域 SOCKS5，過濾訂閱中的外部節點，將僅位址不同的多條 CfGfwAX 節點合併為一個模板，再替換成本輪 TCP 前 150 個候選；若出現多個不同模板、鏈式參數無效或核心不可用，程式會停止而不會降級為直連。鏈式排名依當輪候選池相對計算：HTTP 延遲 40%、頻寬 30%、抖動 20%、成功率 10%，不再套用直連模式的固定延遲門檻。
+鏈式測速僅支援未啟用 ECH/TLS 分片的 CfGfwAX VLESS + WebSocket + TLS 節點。請先在 CGAX-Pages 後台啟用 SOCKS5 和「全域代理」。setup 會依「設定路徑 → 專案 `.runtime/sing-box/` → `PATH`」尋找 sing-box；皆未找到時，為 Windows/Linux x64 或 arm64 下載 SagerNet 官方最新穩定版，驗證 SHA-256 和版本後寫入專案目錄及 `config.json`。已有可用核心不會自動升級。執行 `main.py` 時，程式會在擷取節點或測速前請求原生 sing-box 訂閱並檢查暫存設定；它會驗證 `/video/` 參數確實為全域 SOCKS5，過濾外部節點，將僅位址不同的多條 CfGfwAX 節點合併為一個模板，再替換成本輪 TCP 前 150 個候選。多個不同模板、鏈式參數無效或核心不可用都會立即停止，不會降級為直連。鏈式排名依當輪候選池相對計算：HTTP 延遲 40%、頻寬 30%、抖動 20%、成功率 10%，不再套用直連模式的固定延遲門檻。
 
 #### 4. 完成部署
 
-儲存設定後再次執行 setup。腳本會建立專案虛擬環境、安裝依賴、套用排程設定，並詢問是否立即測試。
+儲存設定後再次執行 setup。腳本會建立專案虛擬環境；鏈式測速啟用時先準備並驗證 sing-box，成功後才繼續安裝依賴、套用排程設定，並詢問是否立即測試。
 
 ### 執行說明
 
@@ -264,18 +264,18 @@ The first run only creates `config.json` and exits. Edit the configuration befor
 - `CF_ENABLED` - When enabling DNS updates, fill in the Cloudflare token, Zone ID, and record name
 - `ENABLE_WXPUSHER` - When enabling error notifications, fill in the App Token and UID
 - `CHAIN_PROXY_TEST_ENABLED` - Set to `true` to enable chain testing; the default `false` preserves the original flow
-- `CHAIN_PROXY_SUBSCRIPTION_URL` - CfGfwAX mixed subscription URL, for example `https://proxy.example/sub?token=***&target=mixed`
-- `CHAIN_PROXY_CORE_PATH` - Path to the sing-box executable; leave empty to search `PATH`
+- `CHAIN_PROXY_SUBSCRIPTION_URL` - CfGfwAX subscription URL; only a request copy is changed to `target=singbox`, leaving the configured URL untouched
+- `CHAIN_PROXY_CORE_PATH` - Path to the sing-box executable; it may be left empty for setup to discover or install and record automatically
 - `CHAIN_PROXY_TEST_SAMPLES` / `CHAIN_PROXY_MIN_SUCCESS_RATE` - Three samples per endpoint by default, with at least two successes required
 - `CHAIN_PROXY_WORKERS` - Low concurrency of four by default to avoid bias from saturating the shared SOCKS5 server
 
 `GITHUB_SYNC_FIELD_ID` cannot contain whitespace, `|`, or `#`. Never commit a real token to GitHub.
 
-Chain testing supports CfGfwAX VLESS + WebSocket + TLS nodes without ECH/TLS fragmentation. Enable SOCKS5 and global proxying in CGAX-Pages first, then install the core using the [official sing-box instructions](https://sing-box.sagernet.org/installation/package-manager/). The tool verifies that `/video/` contains a global SOCKS5 configuration, ignores external subscription entries, collapses CfGfwAX entries that differ only by endpoint address into one template, and replaces that address with the current top 150 TCP candidates. Multiple distinct templates, invalid chain parameters, or an unavailable core stops the run instead of silently falling back to direct tests. Chain ranking is relative to the current pool: HTTP latency 40%, bandwidth 30%, jitter 20%, and success rate 10%, without reusing the fixed direct-mode latency thresholds.
+Chain testing supports CfGfwAX VLESS + WebSocket + TLS nodes without ECH/TLS fragmentation. Enable SOCKS5 and global proxying in CGAX-Pages first. Setup searches for sing-box in this order: configured path, project `.runtime/sing-box/`, then `PATH`. If none is found, it downloads the latest stable official SagerNet build for Windows/Linux x64 or arm64, verifies its SHA-256 and version, installs it in the project, and records the path in `config.json`. An existing valid core is not upgraded automatically. Before `main.py` fetches endpoints or starts measurements, it requests the native sing-box subscription and validates a temporary configuration. The tool verifies that `/video/` contains a global SOCKS5 configuration, ignores external entries, collapses CfGfwAX entries that differ only by endpoint address into one template, and replaces that address with the current top 150 TCP candidates. Multiple distinct templates, invalid chain parameters, or an unavailable core stops the run instead of falling back to direct tests. Chain ranking is relative to the current pool: HTTP latency 40%, bandwidth 30%, jitter 20%, and success rate 10%, without reusing the fixed direct-mode latency thresholds.
 
 #### 4. Complete setup
 
-Save the configuration and run setup again. It creates the project virtual environment, installs dependencies, applies scheduling, and asks whether to run a test.
+Save the configuration and run setup again. It creates the project virtual environment and, when chain testing is enabled, prepares and validates sing-box before installing dependencies, applying scheduling, and asking whether to run a test.
 
 ### Usage
 

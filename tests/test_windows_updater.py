@@ -1,3 +1,7 @@
+import json
+import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -45,6 +49,58 @@ class WindowsUpdaterSourceTests(unittest.TestCase):
             script.index("未创建新备份"),
             script.index('$BackupDir = Join-Path $HOME "bestcfcdn_backup_latest"'),
         )
+
+
+class SetupSingBoxSourceTests(unittest.TestCase):
+    def test_setup_scripts_use_the_same_python_prepare_entry_before_scheduling(self):
+        powershell = (PROJECT_ROOT / "setup.ps1").read_text(encoding="utf-8-sig")
+        bash = (PROJECT_ROOT / "setup.sh").read_text(encoding="utf-8-sig")
+
+        self.assertIn('"--prepare-sing-box", $configPath', powershell)
+        self.assertIn('--prepare-sing-box "$CONFIG_PATH"', bash)
+        self.assertLess(
+            powershell.index('"--prepare-sing-box", $configPath'),
+            powershell.index("$scheduleEnabled = $true"),
+        )
+        self.assertLess(
+            bash.index('--prepare-sing-box "$CONFIG_PATH"'),
+            bash.index('CRON_CMD="*/30'),
+        )
+
+    def test_setup_scripts_do_not_duplicate_sing_box_download_or_extraction(self):
+        combined = "\n".join(
+            (PROJECT_ROOT / name).read_text(encoding="utf-8-sig")
+            for name in ("setup.ps1", "setup.sh")
+        )
+
+        self.assertNotIn("SagerNet/sing-box/releases", combined)
+        self.assertNotIn("Expand-Archive", combined)
+        self.assertNotIn("tar -x", combined)
+        self.assertNotIn(".runtime/sing-box", combined)
+
+    def test_prepare_entry_skips_cleanly_when_chain_testing_is_disabled(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config_path = Path(directory) / "config.json"
+            original = {"CHAIN_PROXY_TEST_ENABLED": False, "keep": "value"}
+            config_path.write_text(json.dumps(original), encoding="utf-8")
+
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(PROJECT_ROOT / "chain_proxy.py"),
+                    "--prepare-sing-box",
+                    str(config_path),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=10,
+            )
+
+            self.assertEqual(0, completed.returncode, completed.stderr)
+            self.assertIn("链式测速未启用", completed.stdout)
+            self.assertEqual(original, json.loads(config_path.read_text(encoding="utf-8")))
 
 
 if __name__ == "__main__":
