@@ -25,7 +25,7 @@
     "_comment_CHAIN_PROXY_SUBSCRIPTION_URL": "CfGfwAX mixed订阅地址，例如 https://代理域名/sub?token=***&target=mixed；含Token，请勿提交或打印",
 
     "CHAIN_PROXY_CORE_PATH": "",
-    "_comment_CHAIN_PROXY_CORE_PATH": "sing-box可执行文件路径；留空时从PATH自动查找，启用链式测速但找不到时会停止而非降级直连",
+    "_comment_CHAIN_PROXY_CORE_PATH": "sing-box 1.13+可执行文件路径；留空时从PATH自动查找。ECH、TLS分片和DoH链式测速需要该版本，找不到或不兼容时会停止而非降级直连",
 
     "CHAIN_PROXY_TEST_SAMPLES": 3,
     "_comment_CHAIN_PROXY_TEST_SAMPLES": "每个候选节点的全链路HTTP样本数，最少按3次执行",

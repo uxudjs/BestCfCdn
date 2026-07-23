@@ -71,7 +71,7 @@ bash setup.sh
 
 `GITHUB_SYNC_FIELD_ID` 不能包含任何空白字符、`|` 或 `#`。不要把真实 Token 提交到 GitHub。
 
-链式测速只支持未启用 ECH/TLS 分片的 CfGfwAX VLESS + WebSocket + TLS 节点。请先在 CGAX-Pages 后台启用 SOCKS5 和“全局代理”，并按 [sing-box 官方说明](https://sing-box.sagernet.org/installation/package-manager/)安装核心。程序会验证 `/video/` 参数确实为全局 SOCKS5，过滤订阅中的外部节点，将仅地址不同的多条 CfGfwAX 节点归并为一个模板，再替换为本轮 TCP 前 150 个候选；如果出现多个不同模板、链式参数无效或核心不可用，将停止而不会降级为直连。链式排名按当轮候选池相对计算：HTTP 延迟 40%、带宽 30%、抖动 20%、成功率 10%，不再套用直连模式的固定延迟门槛。
+链式测速支持 CfGfwAX VLESS + WebSocket/gRPC + TLS 节点的 ECH、TLS 分片和浏览器指纹；ECH 会使用订阅指定的 DoH 查询地址。请使用 sing-box 1.13 或更高版本，并先在 CGAX-Pages 后台启用 SOCKS5 和“全局代理”。程序会验证 `/video/` 参数确实为全局 SOCKS5，过滤订阅中的外部节点，将仅地址不同的多条 CfGfwAX 节点归并为一个模板，再替换为本轮 TCP 前 150 个候选；如果出现多个不同模板、链式参数无效或核心不可用，将停止而不会降级为直连。XHTTP 目前不是 sing-box 支持的传输，因此遇到它会明确停止；请在 CGAX-Pages 选择 WebSocket 或 gRPC。链式排名按当轮候选池相对计算：HTTP 延迟 40%、带宽 30%、抖动 20%、成功率 10%，不再套用直连模式的固定延迟门槛。
 
 #### 4. 完成部署
 
@@ -171,7 +171,7 @@ bash setup.sh
 
 `GITHUB_SYNC_FIELD_ID` 不能包含任何空白字元、`|` 或 `#`。不要把真實 Token 提交到 GitHub。
 
-鏈式測速僅支援未啟用 ECH/TLS 分片的 CfGfwAX VLESS + WebSocket + TLS 節點。請先在 CGAX-Pages 後台啟用 SOCKS5 和「全域代理」，並依 [sing-box 官方說明](https://sing-box.sagernet.org/installation/package-manager/)安裝核心。程式會驗證 `/video/` 參數確實為全域 SOCKS5，過濾訂閱中的外部節點，將僅位址不同的多條 CfGfwAX 節點合併為一個模板，再替換成本輪 TCP 前 150 個候選；若出現多個不同模板、鏈式參數無效或核心不可用，程式會停止而不會降級為直連。鏈式排名依當輪候選池相對計算：HTTP 延遲 40%、頻寬 30%、抖動 20%、成功率 10%，不再套用直連模式的固定延遲門檻。
+鏈式測速支援 CfGfwAX VLESS + WebSocket/gRPC + TLS 節點的 ECH、TLS 分片和瀏覽器指紋；ECH 會使用訂閱指定的 DoH 查詢位址。請使用 sing-box 1.13 或更高版本，並先在 CGAX-Pages 後台啟用 SOCKS5 和「全域代理」。程式會驗證 `/video/` 參數確實為全域 SOCKS5，過濾訂閱中的外部節點，將僅位址不同的多條 CfGfwAX 節點合併為一個模板，再替換成本輪 TCP 前 150 個候選；若出現多個不同模板、鏈式參數無效或核心不可用，程式會停止而不會降級為直連。XHTTP 目前不是 sing-box 支援的傳輸，因此遇到它會明確停止；請在 CGAX-Pages 選擇 WebSocket 或 gRPC。鏈式排名依當輪候選池相對計算：HTTP 延遲 40%、頻寬 30%、抖動 20%、成功率 10%，不再套用直連模式的固定延遲門檻。
 
 #### 4. 完成部署
 
@@ -271,7 +271,7 @@ The first run only creates `config.json` and exits. Edit the configuration befor
 
 `GITHUB_SYNC_FIELD_ID` cannot contain whitespace, `|`, or `#`. Never commit a real token to GitHub.
 
-Chain testing supports CfGfwAX VLESS + WebSocket + TLS nodes without ECH/TLS fragmentation. Enable SOCKS5 and global proxying in CGAX-Pages first, then install the core using the [official sing-box instructions](https://sing-box.sagernet.org/installation/package-manager/). The tool verifies that `/video/` contains a global SOCKS5 configuration, ignores external subscription entries, collapses CfGfwAX entries that differ only by endpoint address into one template, and replaces that address with the current top 150 TCP candidates. Multiple distinct templates, invalid chain parameters, or an unavailable core stops the run instead of silently falling back to direct tests. Chain ranking is relative to the current pool: HTTP latency 40%, bandwidth 30%, jitter 20%, and success rate 10%, without reusing the fixed direct-mode latency thresholds.
+Chain testing supports ECH, TLS fragmentation, and browser fingerprints on CfGfwAX VLESS + WebSocket/gRPC + TLS nodes; ECH uses the DoH resolver supplied by the subscription. Use sing-box 1.13 or newer, and enable SOCKS5 and global proxying in CGAX-Pages first. The tool verifies that `/video/` contains a global SOCKS5 configuration, ignores external subscription entries, collapses CfGfwAX entries that differ only by endpoint address into one template, and replaces that address with the current top 150 TCP candidates. Multiple distinct templates, invalid chain parameters, or an unavailable core stops the run instead of silently falling back to direct tests. XHTTP is not currently a sing-box transport, so the run stops explicitly when it is encountered; select WebSocket or gRPC in CGAX-Pages instead. Chain ranking is relative to the current pool: HTTP latency 40%, bandwidth 30%, jitter 20%, and success rate 10%, without reusing the fixed direct-mode latency thresholds.
 
 #### 4. Complete setup
 

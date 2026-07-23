@@ -26,6 +26,39 @@ class ChainTemplate:
     path: str
     flow: str = ""
     insecure: bool = False
+    transport: str = "ws"
+    ech_query_server_name: str = ""
+    ech_dns_server: str = ""
+    ech_dns_port: int = 443
+    ech_dns_path: str = ""
+    tls_fragment: bool = False
+    fingerprint: str = ""
+
+
+def _parse_ech_settings(value):
+    query_server_name, separator, resolver = value.partition("+")
+    if not separator:
+        resolver, query_server_name = query_server_name, ""
+    if not resolver:
+        raise ChainProxyError("ECH 参数缺少 DNS 查询地址")
+
+    try:
+        parsed = urlsplit(resolver)
+        port = parsed.port or 443
+    except ValueError as exc:
+        raise ChainProxyError("ECH DNS 查询地址端口无效") from exc
+    if (
+        parsed.scheme.lower() != "https"
+        or not parsed.hostname
+        or parsed.username
+        or parsed.password
+    ):
+        raise ChainProxyError("ECH DNS 查询地址必须是无认证信息的 HTTPS URL")
+
+    path = parsed.path or "/dns-query"
+    if parsed.query:
+        path = f"{path}?{parsed.query}"
+    return query_server_name.lower(), parsed.hostname.lower(), port, path
 
 
 def _subscription_lines(content):
@@ -70,17 +103,32 @@ def _parse_vless_template(uri, expected_domain):
         return None
     if parsed.scheme.lower() != "vless" or not parsed.username:
         return None
-    server_name = (query.get("sni") or query.get("host") or "").lower()
-    host = (query.get("host") or server_name).lower()
-    path = query.get("path", "")
+    transport = query.get("type", "").lower()
+    if transport == "ws":
+        endpoint_host = query.get("host") or ""
+        path = query.get("path", "")
+    elif transport == "grpc":
+        endpoint_host = query.get("authority") or query.get("host") or ""
+        path = query.get("serviceName", "")
+    else:
+        endpoint_host = query.get("host") or ""
+        path = query.get("path", "")
+
+    server_name = (query.get("sni") or endpoint_host or "").lower()
+    host = (endpoint_host or server_name).lower()
     if expected_domain not in (server_name, host) or "/video/" not in path:
         return None
     if query.get("security", "").lower() != "tls":
         return None
-    if query.get("type", "").lower() != "ws":
+    if transport == "xhttp":
+        raise ChainProxyError("链式测速当前核心不支持 CfGfwAX XHTTP 传输，请切换为 WebSocket 或 gRPC")
+    if transport not in {"ws", "grpc"}:
         return None
-    if query.get("ech") or query.get("fragment"):
-        raise ChainProxyError("链式测速暂不支持 ECH 或 TLS 分片模板")
+
+    ech_query_server_name = ech_dns_server = ech_dns_path = ""
+    ech_dns_port = 443
+    if ech_value := query.get("ech"):
+        ech_query_server_name, ech_dns_server, ech_dns_port, ech_dns_path = _parse_ech_settings(ech_value)
     uuid = unquote(parsed.username)
     _validate_chain_path(path, uuid)
     return ChainTemplate(
@@ -91,6 +139,14 @@ def _parse_vless_template(uri, expected_domain):
         flow=query.get("flow", ""),
         insecure=query.get("allowInsecure", query.get("insecure", "0"))
         in ("1", "true"),
+        transport=transport,
+        ech_query_server_name=ech_query_server_name,
+        ech_dns_server=ech_dns_server,
+        ech_dns_port=ech_dns_port,
+        ech_dns_path=ech_dns_path,
+        tls_fragment=query.get("fragment", "").strip().lower()
+        not in {"", "0", "false", "off", "none"},
+        fingerprint=query.get("fp", "").strip(),
     )
 
 
@@ -144,6 +200,28 @@ def build_sing_box_config(template, proxy_ports):
             "listen": "127.0.0.1",
             "listen_port": int(listen_port),
         }
+        tls = {
+            "enabled": True,
+            "server_name": template.server_name,
+            "insecure": template.insecure,
+        }
+        if template.ech_dns_server:
+            tls["ech"] = {"enabled": True}
+            if template.ech_query_server_name:
+                tls["ech"]["query_server_name"] = template.ech_query_server_name
+        if template.tls_fragment:
+            tls["fragment"] = True
+        if template.fingerprint:
+            tls["utls"] = {"enabled": True, "fingerprint": template.fingerprint}
+        transport = (
+            {
+                "type": "ws",
+                "path": template.path,
+                "headers": {"Host": template.host},
+            }
+            if template.transport == "ws"
+            else {"type": "grpc", "service_name": template.path}
+        )
         outbound = {
             "type": "vless",
             "tag": outbound_tag,
@@ -151,16 +229,8 @@ def build_sing_box_config(template, proxy_ports):
             "server_port": server_port,
             "uuid": template.uuid,
             "network": "tcp",
-            "tls": {
-                "enabled": True,
-                "server_name": template.server_name,
-                "insecure": template.insecure,
-            },
-            "transport": {
-                "type": "ws",
-                "path": template.path,
-                "headers": {"Host": template.host},
-            },
+            "tls": tls,
+            "transport": transport,
         }
         if template.flow:
             outbound["flow"] = template.flow
@@ -173,12 +243,29 @@ def build_sing_box_config(template, proxy_ports):
                 "outbound": outbound_tag,
             }
         )
-    return {
+    config = {
         "log": {"level": "warn", "timestamp": False},
         "inbounds": inbounds,
         "outbounds": outbounds,
         "route": {"rules": rules},
     }
+    if template.ech_dns_server:
+        config["dns"] = {
+            "servers": [
+                {"tag": "chain-ech-bootstrap", "type": "local"},
+                {
+                    "tag": "chain-ech-doh",
+                    "type": "https",
+                    "server": template.ech_dns_server,
+                    "server_port": template.ech_dns_port,
+                    "path": template.ech_dns_path,
+                    "tls": {"enabled": True, "server_name": template.ech_dns_server},
+                    "domain_resolver": "chain-ech-bootstrap",
+                },
+            ],
+            "final": "chain-ech-doh",
+        }
+    return config
 
 
 def resolve_sing_box_path(configured_path="", base_dir=None):

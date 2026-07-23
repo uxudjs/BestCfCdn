@@ -1,6 +1,7 @@
 import base64
 import json
 import unittest
+from urllib.parse import urlencode
 
 from chain_proxy import (
     ChainProxyError,
@@ -30,12 +31,25 @@ def chain_path(*, proxy_host="socks.example.com", global_proxy=True):
     return "/video/" + base64.b64encode(mixed).decode()
 
 
-def vless_node(server, *, path=None, domain=DOMAIN, proxy_host="socks.example.com"):
+def vless_node(
+    server,
+    *,
+    path=None,
+    domain=DOMAIN,
+    proxy_host="socks.example.com",
+    extra=None,
+):
     path = chain_path(proxy_host=proxy_host) if path is None else path
-    return (
-        f"vless://{UUID}@{server}:443?security=tls&type=ws&"
-        f"host={domain}&sni={domain}&path={path}&encryption=none#{server}"
-    )
+    query = {
+        "security": "tls",
+        "type": "ws",
+        "host": domain,
+        "sni": domain,
+        "path": path,
+        "encryption": "none",
+    }
+    query.update(extra or {})
+    return f"vless://{UUID}@{server}:443?{urlencode(query)}#{server}"
 
 
 class ChainProxyTests(unittest.TestCase):
@@ -122,6 +136,83 @@ class ChainProxyTests(unittest.TestCase):
             [item["outbound"] for item in config["route"]["rules"]],
         )
         self.assertTrue(all(item["transport"]["path"].startswith("/video/") for item in config["outbounds"]))
+
+    def test_ech_fragment_and_fingerprint_map_to_sing_box(self):
+        template = extract_chain_template(
+            vless_node(
+                "198.51.100.10",
+                extra={
+                    "ech": "ech.example+https://doh.example/dns-query",
+                    "fragment": "1,40-60,30-50,tlshello",
+                    "fp": "chrome",
+                },
+            ),
+            f"https://{DOMAIN}/subscribe",
+        )
+
+        config = build_sing_box_config(template, {"198.51.100.10:443": 19090})
+        tls = config["outbounds"][0]["tls"]
+        self.assertEqual(tls["ech"], {"enabled": True, "query_server_name": "ech.example"})
+        self.assertTrue(tls["fragment"])
+        self.assertEqual(tls["utls"], {"enabled": True, "fingerprint": "chrome"})
+        self.assertEqual(config["dns"]["final"], "chain-ech-doh")
+        self.assertEqual(config["dns"]["servers"][1]["path"], "/dns-query")
+
+    def test_ech_without_an_explicit_query_name_uses_the_tls_name(self):
+        template = extract_chain_template(
+            vless_node(
+                "198.51.100.14",
+                extra={"ech": "https://doh.example/dns-query", "fragment": "3,1,tlshello"},
+            ),
+            f"https://{DOMAIN}/subscribe",
+        )
+
+        tls = build_sing_box_config(template, {"198.51.100.14:443": 19090})[
+            "outbounds"
+        ][0]["tls"]
+        self.assertEqual(tls["ech"], {"enabled": True})
+        self.assertTrue(tls["fragment"])
+
+    def test_grpc_template_maps_to_grpc_transport(self):
+        service_name = chain_path()
+        template = extract_chain_template(
+            vless_node(
+                "198.51.100.11",
+                extra={
+                    "type": "grpc",
+                    "mode": "multi",
+                    "authority": DOMAIN,
+                    "serviceName": service_name,
+                },
+            ),
+            f"https://{DOMAIN}/subscribe",
+        )
+
+        config = build_sing_box_config(template, {"198.51.100.11:443": 19090})
+        self.assertEqual(
+            config["outbounds"][0]["transport"],
+            {"type": "grpc", "service_name": service_name},
+        )
+
+    def test_invalid_ech_dns_is_rejected(self):
+        with self.assertRaisesRegex(ChainProxyError, "HTTPS URL"):
+            extract_chain_template(
+                vless_node(
+                    "198.51.100.12",
+                    extra={"ech": "ech.example+http://doh.example/dns-query"},
+                ),
+                f"https://{DOMAIN}/subscribe",
+            )
+
+    def test_xhttp_template_is_rejected_with_an_actionable_error(self):
+        with self.assertRaisesRegex(ChainProxyError, "XHTTP"):
+            extract_chain_template(
+                vless_node(
+                    "198.51.100.13",
+                    extra={"type": "xhttp", "mode": "stream-one"},
+                ),
+                f"https://{DOMAIN}/subscribe",
+            )
 
 
 if __name__ == "__main__":
