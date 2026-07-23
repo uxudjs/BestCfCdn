@@ -410,6 +410,11 @@ $versionOk = Invoke-NativeCommand -FilePath $PythonExePath -Arguments @(
 if (-not $versionOk) { throw "需要 Python 3.9 或更高版本。" }
 Write-Host "✅ 项目 Python: $PythonExePath" -ForegroundColor Gray
 
+Write-Host "[sing-box] 检查链式测速核心..." -ForegroundColor Green
+$null = Invoke-NativeCommand -FilePath $PythonExePath -Arguments @(
+    (Join-Path $ScriptDir "chain_proxy.py"), "--prepare-sing-box", $configPath
+)
+
 # ---------- 2. 检测 Git ----------
 Write-Host "[2/5] 检查 Git..." -ForegroundColor Green
 $git = Get-Command git.exe -CommandType Application -ErrorAction SilentlyContinue |

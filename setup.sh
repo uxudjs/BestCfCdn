@@ -358,6 +358,13 @@ if [[ ! -x $PYTHON_PATH ]]; then
 fi
 echo -e "✅ 项目 Python: $PYTHON_PATH"
 
+echo -e "${GREEN}[sing-box] 检查链式测速核心...${NC}"
+if ! run_as_target "$PYTHON_PATH" "$SCRIPT_DIR/chain_proxy.py" \
+    --prepare-sing-box "$CONFIG_PATH"; then
+    echo -e "${RED}❌ sing-box 准备失败，未修改定时任务。${NC}" >&2
+    exit 1
+fi
+
 # ---------- 3. Python 依赖 ----------
 echo -e "${GREEN}[3/5] 安装并验证 Python 依赖...${NC}"
 if ! run_as_target "$PYTHON_PATH" -m pip --version >/dev/null 2>&1; then

@@ -22,10 +22,10 @@
     "_comment_CHAIN_PROXY_TEST_ENABLED": "可选链式测速；true=从TCP前N个候选开始测试 客户端→CF节点→CfGfwAX→SOCKS5→目标服务器，false=保持原直连流程",
 
     "CHAIN_PROXY_SUBSCRIPTION_URL": "",
-    "_comment_CHAIN_PROXY_SUBSCRIPTION_URL": "CfGfwAX mixed订阅地址，例如 https://代理域名/sub?token=***&target=mixed；含Token，请勿提交或打印",
+    "_comment_CHAIN_PROXY_SUBSCRIPTION_URL": "CfGfwAX订阅地址；请求时自动使用target=singbox且不改写原地址；含Token，请勿提交或打印",
 
     "CHAIN_PROXY_CORE_PATH": "",
-    "_comment_CHAIN_PROXY_CORE_PATH": "sing-box可执行文件路径；留空时从PATH自动查找，启用链式测速但找不到时会停止而非降级直连",
+    "_comment_CHAIN_PROXY_CORE_PATH": "sing-box可执行文件路径；setup按配置路径、项目.runtime/sing-box、PATH查找，缺失时安全安装并自动写入；已有核心不自动升级",
 
     "CHAIN_PROXY_TEST_SAMPLES": 3,
     "_comment_CHAIN_PROXY_TEST_SAMPLES": "每个候选节点的全链路HTTP样本数，最少按3次执行",

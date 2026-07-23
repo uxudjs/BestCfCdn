@@ -29,8 +29,10 @@ from dataclasses import dataclass
 from chain_proxy import (
     ChainProxyError,
     SingBoxRuntime,
+    check_sing_box_config,
     extract_chain_template,
     resolve_sing_box_path,
+    sing_box_subscription_url,
 )
 from local_state import resolve_local_output
 from proxy_scoring import (
@@ -1258,7 +1260,7 @@ def fetch_chain_template():
         )
     try:
         response = requests.get(
-            CHAIN_PROXY_SUBSCRIPTION_URL,
+            sing_box_subscription_url(CHAIN_PROXY_SUBSCRIPTION_URL),
             headers={"User-Agent": "BestCfCdn-chain-test"},
             timeout=(FETCH_CONNECT_TIMEOUT, FETCH_TIMEOUT),
         )
@@ -1268,6 +1270,29 @@ def fetch_chain_template():
     if len(response.content) > _MAX_CHAIN_SUBSCRIPTION_BYTES:
         raise ChainProxyError("CfGfwAX 链式订阅超过 2 MiB，已拒绝解析")
     return extract_chain_template(response.text, CHAIN_PROXY_SUBSCRIPTION_URL)
+
+
+def _stop_chain_proxy(exc):
+    message = f"链式代理测速已停止：{exc}"
+    print(f"\n错误：{message}")
+    send_wxpusher_notification(content=message, summary="链式代理测速失败")
+    raise SystemExit(1)
+
+
+def preflight_chain_proxy():
+    if not CHAIN_PROXY_TEST_ENABLED:
+        return None, None
+    print("\n正在预检链式代理订阅、sing-box 核心与配置...")
+    try:
+        template = fetch_chain_template()
+        core_path = resolve_sing_box_path(
+            CHAIN_PROXY_CORE_PATH, os.path.dirname(CONFIG_FILE)
+        )
+        check_sing_box_config(core_path, template)
+    except ChainProxyError as exc:
+        _stop_chain_proxy(exc)
+    print("链式代理预检通过：订阅模板、核心与配置均可用。")
+    return template, core_path
 
 
 def _parse_chain_write_out(stdout):
@@ -2249,6 +2274,8 @@ def main():
     if FILTER_COUNTRIES_ENABLED:
         print(f"前置白名单过滤：启用，仅保留：{', '.join(ALLOWED_COUNTRIES)}")
 
+    chain_template, chain_core_path = preflight_chain_proxy()
+
     nodes = []
     for source in ADDITIONAL_SOURCES:
         if not source.get("enabled", True):
@@ -2362,13 +2389,9 @@ def main():
     chain_success_rate_map = {}
     if CHAIN_PROXY_TEST_ENABLED:
         try:
-            template = fetch_chain_template()
-            core_path = resolve_sing_box_path(
-                CHAIN_PROXY_CORE_PATH, os.path.dirname(CONFIG_FILE)
-            )
             with SingBoxRuntime(
-                core_path,
-                template,
+                chain_core_path,
+                chain_template,
                 candidates,
             ) as chain_runtime:
                 candidates_after_availability = candidates
@@ -2384,10 +2407,7 @@ def main():
                     candidates_after_http, chain_runtime.proxy_ports
                 )
         except ChainProxyError as exc:
-            message = f"链式代理测速已停止：{exc}"
-            print(f"\n错误：{message}")
-            send_wxpusher_notification(content=message, summary="链式代理测速失败")
-            sys.exit(1)
+            _stop_chain_proxy(exc)
     else:
         candidates_after_availability, avail_ip_info, avail_exit_details = availability_filter_with_retry(candidates)
         candidates_after_http, http_latency_map, http_jitter_map = http_server_filter(candidates_after_availability, cfg)
