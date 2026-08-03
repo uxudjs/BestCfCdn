@@ -16,3 +16,5 @@ cfnb.log
 !/work-products/clean-migration.json
 !/work-products/tests/
 !/work-products/tests/**
+/work-products/tests/**/__pycache__/
+/work-products/tests/**/*.py[cod]
