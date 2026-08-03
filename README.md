@@ -54,7 +54,7 @@ bash setup.sh
 
 首次运行只会生成 `config.json` 并退出，请先修改配置。
 
-公开入口保持为根目录的 `main.py`、`setup.ps1` 和 `setup.sh`。内部实现位于 `core/`，规范配置模板位于 `config/config.example.json`；维护者内部使用 `python -m core.github_sync`、`python -m core.scheduled_run` 和 `scripts/update_fork.*`。旧安装应重新运行 setup，以迁移到模块化定时任务和分组后的更新器。
+公开入口保持为根目录的 `main.py`、`setup.ps1` 和 `setup.sh`。内部实现位于 `core/`，规范配置模板位于 `config/config.example.json`；维护者内部使用 `python -m core.github_sync`、`python -m core.scheduled_run` 和 `scripts/update_fork.*`。根目录同名 JSON 仅用于旧版更新器在快进前读取，请勿单独编辑。旧安装应重新运行 setup，以迁移到模块化定时任务和分组后的更新器。
 
 #### 3. 修改 config.json
 
@@ -157,7 +157,7 @@ bash setup.sh
 
 首次執行只會產生 `config.json` 並退出，請先修改設定。
 
-公開入口維持為根目錄的 `main.py`、`setup.ps1` 與 `setup.sh`。內部實作位於 `core/`，規範設定範本位於 `config/config.example.json`；維護者內部使用 `python -m core.github_sync`、`python -m core.scheduled_run` 與 `scripts/update_fork.*`。舊安裝應重新執行 setup，以遷移至模組化排程任務與分組後的更新器。
+公開入口維持為根目錄的 `main.py`、`setup.ps1` 與 `setup.sh`。內部實作位於 `core/`，規範設定範本位於 `config/config.example.json`；維護者內部使用 `python -m core.github_sync`、`python -m core.scheduled_run` 與 `scripts/update_fork.*`。根目錄同名 JSON 僅供舊版更新器在快進前讀取，請勿單獨編輯。舊安裝應重新執行 setup，以遷移至模組化排程任務與分組後的更新器。
 
 #### 3. 修改 config.json
 
@@ -260,7 +260,7 @@ bash setup.sh
 
 The first run only creates `config.json` and exits. Edit the configuration before continuing.
 
-The stable public entry points remain root-level `main.py`, `setup.ps1`, and `setup.sh`. Internal implementation lives under `core/`, and the canonical template is `config/config.example.json`; maintainer-only commands use `python -m core.github_sync`, `python -m core.scheduled_run`, and `scripts/update_fork.*`. Existing installations should rerun setup to migrate to the module-based scheduler and grouped updater.
+The stable public entry points remain root-level `main.py`, `setup.ps1`, and `setup.sh`. Internal implementation lives under `core/`, and the canonical template is `config/config.example.json`; maintainer-only commands use `python -m core.github_sync`, `python -m core.scheduled_run`, and `scripts/update_fork.*`. The same-named root JSON exists only so legacy updaters can read it before fast-forwarding; do not edit it independently. Existing installations should rerun setup to migrate to the module-based scheduler and grouped updater.
 
 #### 3. Edit config.json
 

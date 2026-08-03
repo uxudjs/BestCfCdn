@@ -2,7 +2,7 @@
 
 ## 状态
 
-已实施（2026-08-03）。目录迁移、第二期兼容层删除、内部包名 `core/` 收敛和白名单缓存清理已完成；按用户授权以理论多平台门禁代替真实 Linux/CI，6 项 POSIX 集成继续明确标为未证明。
+已实施并纠正升级兼容性（2026-08-03）。目录迁移、根级脚本兼容层删除、内部包名 `core/` 收敛和白名单缓存清理已完成；线上旧版 Linux updater 证明根模板仍是快进前引导契约，因此恢复其逐字节相同副本。6 项 POSIX 集成仍明确标为未在本机证明。
 
 ## 目标
 
@@ -37,7 +37,7 @@
 2. `python main.py`、`.\setup.ps1`、`./setup.sh` 是必须保留的公开入口。
 3. 本次只做结构迁移，不改变测速、评分、DNS、GitHub 同步、链式代理或调度语义。
 4. 不引入新的打包工具、第三方依赖、构建步骤或 `sys.path` 注入。
-5. `config.json`、`ip.local.txt`、`ip.txt` 和 `.sing-box/` 的运行时位置保持不变；规范模板迁入 `config/`，setup 和 updater 必须同步新模板路径。第一期根模板仅作为旧 updater 快进前读取的完全相同兼容副本，第二期与根包装器一并删除。
+5. `config.json`、`ip.local.txt`、`ip.txt` 和 `.sing-box/` 的运行时位置保持不变；规范模板迁入 `config/`，setup 和 updater 必须同步新模板路径。根模板仅作为旧 updater 快进前读取的完全相同兼容副本；在明确淘汰受影响旧版本前不得删除。
 6. `ip.txt` 和 `_headers` 保持根目录，因为它们构成静态托管输出及缓存头契约。
 7. 本次清理仅删除精确列出的可再生缓存；`.venv/`、`.codegraph/`、`.sing-box/` 和 `.agents/` 不是本次缓存清理对象。
 
@@ -362,7 +362,7 @@ bash -n setup.sh scripts/git_sync.sh scripts/update_fork.sh
 - [x] 根级 Python 业务入口只有 `main.py`；其余 Python 实现位于 `core/`。
 - [x] 根级平台入口只有 `setup.ps1` 和 `setup.sh`；辅助脚本位于 `scripts/`。
 - [x] 根级例外文件仅为本规格列出的仓库、配置、依赖和托管契约文件。
-- [x] 规范模板已迁入 `config/config.example.json`，根兼容副本已在第二期删除；根级真实 `config.json` 的生成、读取和升级行为不变。
+- [x] 规范模板已迁入 `config/config.example.json`；根兼容副本与其逐字节相同，供旧 updater 快进前读取；根级真实 `config.json` 的生成、读取和升级行为不变。
 - [x] `python main.py`、`.\setup.ps1`、`./setup.sh` 的调用方式与退出语义不变。
 - [x] 所有 Python 模块从仓库根正常导入，且仓库中不存在 `sys.path` 注入。
 - [x] 旧的根级模块/辅助脚本消费者为零；迁移记录和回归夹具只保留历史 source。
@@ -371,14 +371,14 @@ bash -n setup.sh scripts/git_sync.sh scripts/update_fork.sh
 - [x] 理论多平台门禁通过：Bash 静态解析、Windows 完整回归及跨平台源契约均通过；6 项 POSIX skip 单独披露。
 - [x] Windows PowerShell BOM、setup/update、定时任务和 Git 同步回归全部通过。
 - [x] 三语 README、`AGENTS.md` 和命令示例全部指向新结构。
-- [x] 旧布局升级夹具覆盖兼容 updater/模板删除，setup 保留旧 cron 清理能力。
+- [x] 旧布局升级契约覆盖旧 updater 的根模板读取，setup 保留旧 cron 清理能力。
 - [x] 最终测试后仅删除白名单缓存；`.venv/`、`.codegraph/`、`.sing-box/`、`.agents/` 和用户文件均保持不变。
 - [x] `git diff --check` 通过，且没有业务行为差异或敏感信息。
 
 ## 已批准决策
 
 1. 根目录保留公开 main/setup 入口、必要 GitHub/CLI/工程文件、根级真实 `config.json`、`ip.txt` 和 `_headers`；每项理由见“根目录保留项及理由”。
-2. 规范模板迁入 `config/`；真实 `config.json` 继续留在根目录。第一期根模板兼容旧 updater，第二期再删除。最终测试后按精确白名单清理缓存，不迁移或删除受保护运行环境与用户文件。
-3. 一期兼容包装器优先保护旧 updater 和定时任务路径；用户随后明确继续 `@uxu-code:build auto`，第二期在理论多平台门禁通过后完成移除。
+2. 规范模板迁入 `config/`；真实 `config.json` 继续留在根目录。根模板继续作为旧 updater 的引导副本，并由测试锁定与规范模板逐字节相同。最终测试后按精确白名单清理缓存，不迁移或删除受保护运行环境与用户文件。
+3. 根脚本兼容包装器已在第二期移除；根模板删除因线上旧版 Linux updater 的实际失败证据而回滚，不能再以理论门禁替代该升级路径。
 
 本规格已批准，可以进入 `@uxu-code:plan`；在计划批准前不得实施目录重组或缓存删除。

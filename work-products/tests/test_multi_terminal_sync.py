@@ -16,9 +16,14 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 class ConfigDefaultsTests(unittest.TestCase):
     CONFIG_TEMPLATE = PROJECT_ROOT / "config" / "config.example.json"
 
-    def test_canonical_template_has_no_root_compatibility_copy(self):
+    def test_legacy_update_bridge_matches_canonical_template(self):
         self.assertTrue(self.CONFIG_TEMPLATE.is_file())
-        self.assertFalse((PROJECT_ROOT / "config.example.json").exists())
+        legacy_bridge = PROJECT_ROOT / "config.example.json"
+        self.assertTrue(legacy_bridge.is_file())
+        self.assertEqual(
+            self.CONFIG_TEMPLATE.read_bytes(),
+            legacy_bridge.read_bytes(),
+        )
 
     def test_terminal_field_is_at_top_and_can_be_loaded(self):
         with self.CONFIG_TEMPLATE.open("r", encoding="utf-8-sig") as file:

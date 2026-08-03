@@ -101,8 +101,11 @@ class ProjectLayoutTests(unittest.TestCase):
             for path in PROJECT_ROOT.glob(pattern)
         }
         self.assertEqual({"main.py", "setup.ps1", "setup.sh"}, root_entrypoints)
-        self.assertFalse((PROJECT_ROOT / "config.example.json").exists())
-        self.assertTrue((PROJECT_ROOT / "config" / "config.example.json").is_file())
+        canonical_template = PROJECT_ROOT / "config" / "config.example.json"
+        legacy_bridge = PROJECT_ROOT / "config.example.json"
+        self.assertTrue(canonical_template.is_file())
+        self.assertTrue(legacy_bridge.is_file())
+        self.assertEqual(canonical_template.read_bytes(), legacy_bridge.read_bytes())
 
     def test_cache_candidates_are_limited_to_the_approved_whitelist(self):
         from core.paths import is_removable_cache_candidate

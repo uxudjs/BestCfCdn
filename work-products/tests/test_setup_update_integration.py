@@ -109,7 +109,10 @@ class SetupUpdateIntegrationTests(unittest.TestCase):
     def _push_v2(self):
         self._write_template(version=2)
         (self.seed / "update_fork.sh").unlink(missing_ok=True)
-        (self.seed / "config.example.json").unlink(missing_ok=True)
+        shutil.copy2(
+            self.seed / "config" / "config.example.json",
+            self.seed / "config.example.json",
+        )
         run(["git", "add", "-A"], self.seed)
         run(["git", "commit", "-m", "v2"], self.seed)
         run(["git", "push", "origin", "main"], self.seed)
@@ -135,7 +138,10 @@ class SetupUpdateIntegrationTests(unittest.TestCase):
         self.assertEqual(42, config["NEW_SETTING"])
         self.assertFalse((self.client / ".venv").exists())
         self.assertFalse((self.client / "update_fork.sh").exists())
-        self.assertFalse((self.client / "config.example.json").exists())
+        self.assertEqual(
+            (self.client / "config" / "config.example.json").read_bytes(),
+            (self.client / "config.example.json").read_bytes(),
+        )
         self.assertIn("首次部署到此暂停", completed.stdout)
         self.assertNotIn("是否立即运行一次", completed.stdout)
         self.assertEqual(

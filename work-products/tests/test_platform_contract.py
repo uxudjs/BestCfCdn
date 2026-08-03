@@ -155,12 +155,13 @@ class TheoreticalPlatformContractTests(unittest.TestCase):
         for index, source in enumerate(embedded):
             compile(source, f"<scripts/update_fork.sh embedded {index}>", "exec")
 
-    def test_final_layout_removes_phase_one_compatibility_files(self):
-        self.assertTrue(
-            (PROJECT_ROOT / "config" / "config.example.json").is_file()
-        )
+    def test_final_layout_keeps_only_the_required_legacy_template_bridge(self):
+        canonical_template = PROJECT_ROOT / "config" / "config.example.json"
+        legacy_bridge = PROJECT_ROOT / "config.example.json"
+        self.assertTrue(canonical_template.is_file())
+        self.assertTrue(legacy_bridge.is_file())
+        self.assertEqual(canonical_template.read_bytes(), legacy_bridge.read_bytes())
         for name in (
-            "config.example.json",
             "scheduled_run.py",
             "update_fork.ps1",
             "update_fork.sh",
