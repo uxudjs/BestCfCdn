@@ -99,6 +99,7 @@ bash setup.sh
 - 🔒 **链式安全** - 订阅 URL 含 Token；仅写入本地 `config.json`，不要放进 `config/config.example.json`、日志或公开仓库
 - 💾 **更新备份** - 无变化时不创建备份；默认固定保留最新一份于用户主目录，不会按时间戳无限累积
 - 🧩 **DNS 模式** - `TXT` 保存 `IP:端口`；`A` 保存纯 IPv4，作为入口域名时保持 `CF_PROXIED=false`
+- 🛑 **筛选失败保护** - 已启用的可用性或 HTTP 检测全部失败时，本轮保留现有本地、GitHub 与 DNS 结果；风险等级等 DNS 发布过滤无结果时仅保留现有 DNS 记录，本地与 GitHub 仍按已通过前序检测的排序结果更新
 
 ### 适用范围
 
@@ -201,6 +202,7 @@ bash setup.sh
 - 🔒 **鏈式安全** - 訂閱 URL 含 Token；僅寫入本機 `config.json`，不要放進 `config/config.example.json`、日誌或公開倉庫
 - 💾 **更新備份** - 沒有變更時不建立備份；預設固定保留最新一份於使用者主目錄，不會依時間戳無限累積
 - 🧩 **DNS 模式** - `TXT` 儲存 `IP:連接埠`；`A` 儲存純 IPv4，作為入口網域時保持 `CF_PROXIED=false`
+- 🛑 **篩選失敗保護** - 已啟用的可用性或 HTTP 檢測全部失敗時，本輪保留現有本機、GitHub 與 DNS 結果；風險等級等 DNS 發佈過濾無結果時僅保留現有 DNS 記錄，本機與 GitHub 仍依通過前序檢測的排序結果更新
 
 ### 適用範圍
 
@@ -303,6 +305,7 @@ Run manually:
 - 🔒 **Chain-test safety** - The subscription URL contains a token; keep it only in local `config.json`, never in `config/config.example.json`, logs, or public repositories
 - 💾 **Update backups** - No backup is created when nothing changed; by default one latest backup is kept in the user home directory without timestamp accumulation
 - 🧩 **DNS modes** - `TXT` stores `IP:port`; `A` stores plain IPv4 and should keep `CF_PROXIED=false` for an entry hostname
+- 🛑 **Fail-closed filtering** - If enabled availability or HTTP checks reject every candidate, the run preserves the current local, GitHub, and DNS results; if DNS publishing filters such as IP risk reject every ranked node, only existing DNS records are preserved while local and GitHub outputs still use the nodes that passed earlier checks
 
 ### Compatibility
 

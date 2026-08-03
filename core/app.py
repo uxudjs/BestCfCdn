@@ -1186,10 +1186,10 @@ def availability_filter_with_retry(candidates):
 
     print(f"可用性检测经 {AVAILABILITY_RETRY_MAX} 轮重试后仍无节点通过。")
     send_wxpusher_notification(
-        content=f"IP 可用性检测经 {AVAILABILITY_RETRY_MAX} 轮重试后仍无节点通过，已跳过过滤，使用原候选列表继续。",
+        content=f"IP 可用性检测经 {AVAILABILITY_RETRY_MAX} 轮重试后仍无节点通过，本轮停止发布并保留现有结果。",
         summary="可用性检测全部失败"
     )
-    return candidates, {}, {}
+    return [], {}, {}
 
 def http_server_filter(candidates, config):
     if not config.get("HTTP_TEST_ENABLED", False) or not candidates:
@@ -1242,11 +1242,11 @@ def http_server_filter(candidates, config):
             time.sleep(round_delay)
 
     send_wxpusher_notification(
-        content=f"HTTP检测经 {max_rounds} 轮重试后仍无节点通过，已降级使用过滤前列表。",
+        content=f"HTTP检测经 {max_rounds} 轮重试后仍无节点通过，本轮停止发布并保留现有结果。",
         summary="HTTP检测全部失败"
     )
-    print(f"HTTP检测经 {max_rounds} 轮重试后仍无节点通过，降级使用过滤前候选列表。")
-    return candidates, {}, {}
+    print(f"HTTP检测经 {max_rounds} 轮重试后仍无节点通过，本轮停止发布并保留现有结果。")
+    return [], {}, {}
 
 
 _CHAIN_WRITE_OUT_MARKER = "__BESTCFCDN_CHAIN__"
@@ -1870,9 +1870,6 @@ def batch_update_cloudflare_dns(
     filtered_by_country = 0
     filtered_by_country_quota = 0
     filtered_by_risk = 0
-    risk_fallback_ip_list = []
-    risk_fallback_node_list = []
-
     record_type = DNS_RECORD_TYPE.upper()
     if record_type not in ("A", "TXT"):
         print(f"不支持的 DNS_RECORD_TYPE: {record_type}，已跳过 DNS 更新。")
@@ -1901,7 +1898,7 @@ def batch_update_cloudflare_dns(
                         risk_map[ip] = "未知"
             print("风险等级查询完成。")
 
-    if full_bw_results:
+    if full_bw_results is not None:
         blocked_set = set()
         if FILTER_BLOCKED_COUNTRIES_ENABLED:
             blocked_set = {c.upper() for c in BLOCKED_COUNTRIES}
@@ -1932,10 +1929,6 @@ def batch_update_cloudflare_dns(
                     continue
 
             if DNS_IP_RISK_FILTER_ENABLED:
-                risk_fallback_ip_list.append(pure_ip)
-                risk_fallback_node_list.append(node_str)
-
-            if DNS_IP_RISK_FILTER_ENABLED:
                 risk_level = risk_map.get(pure_ip, "未知")
                 max_level = DNS_IP_RISK_MAX_LEVEL
                 if risk_level == "未知" or RISK_LEVEL_ORDER.get(risk_level, 99) > RISK_LEVEL_ORDER.get(max_level, 2):
@@ -1959,32 +1952,6 @@ def batch_update_cloudflare_dns(
             if len(dns_content_list) >= target_count:
                 break
 
-        if DNS_IP_RISK_FILTER_ENABLED and not dns_content_list and filtered_by_risk > 0:
-            send_wxpusher_notification(
-                content="风险等级检测全部失败：所有候选节点均因风险等级过高或 API 查询失败被过滤，已回退到无风险等级过滤的候选列表。",
-                summary="风险等级检测全部失败"
-            )
-            fallback_content = []
-            fallback_nodes = []
-            fallback_country_counts = defaultdict(int)
-            for i, (ip, node) in enumerate(zip(risk_fallback_ip_list, risk_fallback_node_list)):
-                country = node.rsplit('#', 1)[-1].split()[0].upper() if '#' in node else ''
-                if per_country_limit is not None:
-                    if not country or fallback_country_counts[country] >= per_country_limit:
-                        continue
-                if record_type == "A":
-                    fallback_content.append(ip)
-                else:
-                    ip_port = node.split('#')[0]
-                    fallback_content.append(ip_port)
-                fallback_nodes.append(node)
-                if per_country_limit is not None:
-                    fallback_country_counts[country] += 1
-                if len(fallback_content) >= target_count:
-                    break
-            dns_content_list = fallback_content
-            dns_node_list = fallback_nodes
-
         filter_parts = []
         if filtered_by_port > 0:
             filter_parts.append(f"非443端口过滤({filtered_by_port}个)")
@@ -2000,6 +1967,11 @@ def batch_update_cloudflare_dns(
         print(f"从 {len(full_bw_results)} 个测速节点中筛选出 {len(dns_content_list)} 个{'IP' if record_type=='A' else 'IP:端口'} 用于 DNS 更新（{filter_str}）。")
 
     if not dns_content_list:
+        if full_bw_results is not None:
+            msg = "测速结果未通过 DNS 发布过滤，本轮保留现有 DNS 记录。"
+            print(msg)
+            send_wxpusher_notification(content=msg, summary="DNS 更新跳过")
+            return
         if ip_list:
             print("未能从完整测速结果构建 DNS 列表，降级使用本机优选结果中的 IP。")
             if record_type == "A":
@@ -2286,7 +2258,7 @@ def _run():
         print(f"前置端口过滤（仅保留端口 {ports_display}）：{before} -> {after} 个节点")
         if not nodes:
             print("前置端口过滤后无任何节点，退出程序。")
-            sys.exit(0)
+            sys.exit(1)
 
     if PRE_FILTER_BLOCKED_ENABLED and PRE_FILTER_BLOCKED_COUNTRIES:
         before = len(nodes)
@@ -2296,7 +2268,7 @@ def _run():
         print(f"前置黑名单过滤：{before} -> {after} 个节点（已屏蔽：{', '.join(sorted(blocked_set))}）")
         if not nodes:
             print("前置黑名单过滤后无任何节点，退出程序。")
-            sys.exit(0)
+            sys.exit(1)
 
     if not nodes:
         print("没有获取到任何有效节点，退出。")
@@ -2315,7 +2287,7 @@ def _run():
         print(f"\n国家过滤（测试前）：{before} -> {after} 个节点（允许国家：{', '.join(allowed_set)}）")
         if not nodes:
             print("过滤后无任何节点，退出程序。")
-            sys.exit(0)
+            sys.exit(1)
 
     total = len(nodes)
     print(f"开始 TCP 连接测试（超时 {TIMEOUT}s，并发 {MAX_WORKERS}）...")
@@ -2338,7 +2310,7 @@ def _run():
     print("\nTCP 测试完成！")
     if not results:
         print("没有通过成功率筛选的节点，请检查网络或降低 MIN_SUCCESS_RATE。")
-        sys.exit(0)
+        sys.exit(1)
 
     results.sort(key=lambda x: (-x[3], x[1]))
     latency_map = {node: lat for node, lat, _, _ in results}
@@ -2363,7 +2335,7 @@ def _run():
 
     if not candidates:
         print("没有候选节点，退出。")
-        sys.exit(0)
+        sys.exit(1)
 
     chain_success_rate_map = {}
     if CHAIN_PROXY_TEST_ENABLED:
@@ -2394,7 +2366,13 @@ def _run():
             sys.exit(1)
     else:
         candidates_after_availability, avail_ip_info, avail_exit_details = availability_filter_with_retry(candidates)
+        if TEST_AVAILABILITY and not candidates_after_availability:
+            print("可用性检测未产生合格节点，本轮停止并保留现有输出。")
+            sys.exit(1)
         candidates_after_http, http_latency_map, http_jitter_map = http_server_filter(candidates_after_availability, cfg)
+        if HTTP_TEST_ENABLED and not candidates_after_http:
+            print("HTTP 检测未产生合格节点，本轮停止并保留现有输出。")
+            sys.exit(1)
         bw_results, _, bandwidth_rounds = bandwidth_filter_with_retry(
             candidates_after_http
         )
@@ -2406,9 +2384,7 @@ def _run():
             content=f"带宽测速完成 {bandwidth_rounds} 轮后仍无有效结果，已降级使用通过可用性/HTTP 检测的节点按延迟体验排序。",
             summary="带宽测速全部失败"
         )
-        fallback_candidates = (
-            candidates_after_http or candidates_after_availability or candidates
-        )
+        fallback_candidates = candidates_after_http
         scoring_results = [(node, 0.0) for node in fallback_candidates]
     else:
         # 测速失败不等于节点不可用。保留所有已通过可用性/HTTP 检测的节点，

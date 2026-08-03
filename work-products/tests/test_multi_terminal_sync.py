@@ -283,13 +283,14 @@ class SetupScriptTests(unittest.TestCase):
     def test_bandwidth_failure_does_not_restore_rejected_candidates(self):
         script = (PROJECT_ROOT / "core" / "app.py").read_text(encoding="utf-8-sig")
         self.assertIn(
-            "candidates_after_http or candidates_after_availability or candidates",
+            "fallback_candidates = candidates_after_http",
             script,
         )
         fallback_block = script.split("if not bandwidth_available:", 1)[1].split(
             "ranked_scores =", 1
         )[0]
         self.assertNotIn("results[:GLOBAL_TOP_N]", fallback_block)
+        self.assertNotIn("or candidates", fallback_block)
 
     def test_dns_ranked_nodes_do_not_require_availability_metadata(self):
         script = (PROJECT_ROOT / "core" / "app.py").read_text(encoding="utf-8-sig")

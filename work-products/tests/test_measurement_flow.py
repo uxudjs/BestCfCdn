@@ -382,6 +382,81 @@ class MeasurementFlowTests(unittest.TestCase):
         bandwidth_filter.assert_called_once_with([node])
         sleep.assert_not_called()
 
+    def test_availability_all_failures_do_not_restore_unverified_candidates(self):
+        candidates = ["104.16.0.1:443#US"]
+        with mock.patch.multiple(
+            main,
+            TEST_AVAILABILITY=True,
+            AVAILABILITY_RETRY_MAX=2,
+            AVAILABILITY_RETRY_DELAY=0,
+        ), mock.patch(
+            "core.app.availability_filter_candidates", return_value=([], {}, {})
+        ), mock.patch("core.app.time.sleep"), mock.patch(
+            "core.app.send_wxpusher_notification"
+        ):
+            passed, ip_info, exit_details = main.availability_filter_with_retry(
+                candidates
+            )
+
+        self.assertEqual([], passed)
+        self.assertEqual({}, ip_info)
+        self.assertEqual({}, exit_details)
+
+    def test_http_all_failures_do_not_restore_unverified_candidates(self):
+        candidates = ["104.16.0.1:443#US"]
+        settings = {
+            "HTTP_TEST_MAX_ROUNDS": 2,
+            "HTTP_TEST_ROUND_DELAY": 0,
+            "HTTP_TEST_WORKERS": 1,
+        }
+        with mock.patch.multiple(main, **settings), mock.patch(
+            "core.app.check_http_server",
+            return_value=(candidates[0], False, "invalid", 0.0, 0.0),
+        ), mock.patch("core.app.time.sleep"), mock.patch(
+            "core.app.send_wxpusher_notification"
+        ):
+            passed, latency_map, jitter_map = main.http_server_filter(
+                candidates, {"HTTP_TEST_ENABLED": True}
+            )
+
+        self.assertEqual([], passed)
+        self.assertEqual({}, latency_map)
+        self.assertEqual({}, jitter_map)
+
+    def test_run_stops_before_publish_when_availability_rejects_every_candidate(self):
+        node = "104.16.0.1:443#US"
+        settings = {
+            "ADDITIONAL_SOURCES": [{"enabled": True, "url": "test-source"}],
+            "PRE_FILTER_PORT_ENABLED": False,
+            "PRE_FILTER_BLOCKED_ENABLED": False,
+            "FILTER_COUNTRIES_ENABLED": False,
+            "USE_GLOBAL_MODE": True,
+            "BANDWIDTH_CANDIDATES": 1,
+            "MAX_WORKERS": 1,
+            "TEST_AVAILABILITY": True,
+            "CHAIN_PROXY_TEST_ENABLED": False,
+            "HTTP_TEST_ENABLED": True,
+        }
+        with mock.patch.multiple(main, **settings), mock.patch(
+            "core.app.fetch_additional_source", return_value=[node]
+        ), mock.patch("core.app.calibrate_regions"), mock.patch(
+            "core.app.test_node", return_value=(node, 0.01, "US", 1.0)
+        ), mock.patch(
+            "core.app.availability_filter_with_retry", return_value=([], {}, {})
+        ), mock.patch("core.app.http_server_filter") as http_filter, mock.patch(
+            "core.app.write_ip_txt"
+        ) as write_output, mock.patch(
+            "core.app.batch_update_cloudflare_dns"
+        ) as update_dns, mock.patch("core.app.sync_to_github") as sync_github:
+            with self.assertRaises(SystemExit) as caught:
+                main._run()
+
+        self.assertEqual(1, caught.exception.code)
+        http_filter.assert_not_called()
+        write_output.assert_not_called()
+        update_dns.assert_not_called()
+        sync_github.assert_not_called()
+
     def test_dns_per_country_limit_is_applied_after_ranking(self):
         list_response = mock.MagicMock()
         list_response.json.return_value = {"result": []}
@@ -418,6 +493,51 @@ class MeasurementFlowTests(unittest.TestCase):
             ["104.16.0.1:443", "104.16.0.3:443"],
             [record["content"] for record in payload["posts"]],
         )
+
+    def test_dns_risk_filter_all_failures_preserve_existing_records(self):
+        settings = {
+            "CF_ENABLED": True,
+            "DNS_RECORD_TYPE": "A",
+            "FILTER_IPV6_AVAILABILITY": False,
+            "FILTER_BLOCKED_COUNTRIES_ENABLED": False,
+            "DNS_IP_RISK_FILTER_ENABLED": True,
+            "DNS_IP_RISK_MAX_LEVEL": "低风险",
+        }
+        ranked = [("104.16.0.1:443#US", 100)]
+
+        with mock.patch.multiple(main, **settings), mock.patch(
+            "core.app.get_ip_risk_level", return_value="未知"
+        ), mock.patch("core.app.requests.get") as get, mock.patch(
+            "core.app.requests.post"
+        ) as post, mock.patch("core.app.send_wxpusher_notification"):
+            main.batch_update_cloudflare_dns(
+                ["104.16.0.1"], full_bw_results=ranked, target_count=1
+            )
+
+        get.assert_not_called()
+        post.assert_not_called()
+
+    def test_dns_ranked_results_removed_by_filters_do_not_fallback_to_ip_list(self):
+        settings = {
+            "CF_ENABLED": True,
+            "DNS_RECORD_TYPE": "A",
+            "FILTER_IPV6_AVAILABILITY": False,
+            "FILTER_BLOCKED_COUNTRIES_ENABLED": False,
+            "DNS_IP_RISK_FILTER_ENABLED": False,
+        }
+        ranked = [("104.16.0.1:80#US", 100)]
+
+        with mock.patch.multiple(main, **settings), mock.patch(
+            "core.app.requests.get"
+        ) as get, mock.patch("core.app.requests.post") as post, mock.patch(
+            "core.app.send_wxpusher_notification"
+        ):
+            main.batch_update_cloudflare_dns(
+                ["104.16.0.1"], full_bw_results=ranked, target_count=1
+            )
+
+        get.assert_not_called()
+        post.assert_not_called()
 
 
 if __name__ == "__main__":
