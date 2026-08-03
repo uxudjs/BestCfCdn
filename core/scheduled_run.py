@@ -8,6 +8,8 @@ import sys
 import time
 from datetime import datetime, timedelta, timezone
 
+from core.paths import CONFIG_FILE, PROJECT_ROOT, SCHEDULE_LOCK_FILE
+
 
 def load_config(path):
     with open(path, "r", encoding="utf-8-sig") as config_file:
@@ -55,8 +57,7 @@ def acquire_lock(lock_path, stale_minutes):
 
 
 def main():
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    config = load_config(os.path.join(script_dir, "config.json"))
+    config = load_config(CONFIG_FILE)
     if not config.get("ENABLE_SCHEDULED_TASK", True):
         print("自动定时优选已在 config.json 中关闭；如需运行，请手动执行 main.py。")
         return 0
@@ -69,7 +70,7 @@ def main():
         print(f"[{now:%Y-%m-%d %H:%M}] {period_name}，本轮跳过（每{interval}分钟运行）")
         return 0
 
-    lock_path = os.path.join(script_dir, ".cfnb_schedule.lock")
+    lock_path = SCHEDULE_LOCK_FILE
     stale_minutes = int(config.get("SCHEDULE_LOCK_STALE_MINUTES", 180))
     if not acquire_lock(lock_path, stale_minutes):
         print("检测到上一次优选任务仍在运行，本轮跳过。")
@@ -80,8 +81,8 @@ def main():
         child_env.setdefault("PYTHONUTF8", "1")
         child_env.setdefault("PYTHONIOENCODING", "utf-8")
         return subprocess.call(
-            [sys.executable, os.path.join(script_dir, "main.py")],
-            cwd=script_dir,
+            [sys.executable, str(PROJECT_ROOT / "main.py")],
+            cwd=PROJECT_ROOT,
             env=child_env,
         )
     finally:

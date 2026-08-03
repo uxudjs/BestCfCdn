@@ -20,6 +20,8 @@ from urllib.error import URLError
 from urllib.parse import parse_qsl, unquote, urlsplit
 from urllib.request import Request, urlopen
 
+from core.paths import PROJECT_ROOT
+
 
 class ChainProxyError(RuntimeError):
     pass
@@ -565,7 +567,7 @@ def resolve_sing_box_path(configured_path="", base_dir=None):
     if found:
         return found
 
-    project_dir = os.path.abspath(base_dir or os.path.dirname(__file__))
+    project_dir = os.path.abspath(base_dir or PROJECT_ROOT)
     executable_name = "sing-box.exe" if platform.system() == "Windows" else "sing-box"
     local_path = os.path.join(project_dir, ".sing-box", executable_name)
     if os.path.isfile(local_path):

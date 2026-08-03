@@ -1,6 +1,6 @@
 import unittest
 
-from proxy_scoring import (
+from core.proxy_scoring import (
     rank_chain_candidates,
     rank_proxy_candidates,
     select_proxy_candidates,

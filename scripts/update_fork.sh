@@ -10,7 +10,15 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$PROJECT_ROOT"
+
+if [[ ! -d $PROJECT_ROOT/.git ]] \
+    || [[ ! -f $PROJECT_ROOT/main.py ]] \
+    || [[ ! -f $PROJECT_ROOT/config/config.example.json ]]; then
+    echo -e "${RED}❌ 仓库布局不完整，已拒绝更新。${NC}" >&2
+    exit 2
+fi
 
 BRANCH="main"
 BRANCH_SET=false
@@ -70,12 +78,12 @@ git rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
     exit 2
 }
 REPOSITORY_ROOT="$(git rev-parse --show-toplevel)"
-if [[ $REPOSITORY_ROOT != "$SCRIPT_DIR" ]]; then
-    echo -e "${RED}❌ setup.sh 不在当前 Git 仓库根目录，已拒绝更新。${NC}" >&2
+if [[ $REPOSITORY_ROOT != "$PROJECT_ROOT" ]]; then
+    echo -e "${RED}❌ scripts/update_fork.sh 的父目录不是当前 Git 仓库根目录，已拒绝更新。${NC}" >&2
     exit 2
 fi
 
-CONFIG_PATH="$SCRIPT_DIR/config.json"
+CONFIG_PATH="$PROJECT_ROOT/config.json"
 HAD_CONFIG=false
 [[ -f $CONFIG_PATH ]] && HAD_CONFIG=true
 if [[ -e $CONFIG_PATH && $HAD_CONFIG != true ]]; then
@@ -85,8 +93,8 @@ fi
 
 PYTHON_PATH=""
 BACKUP_RETENTION=1
-if [[ -x $SCRIPT_DIR/.venv/bin/python ]]; then
-    PYTHON_PATH="$SCRIPT_DIR/.venv/bin/python"
+if [[ -x $PROJECT_ROOT/.venv/bin/python ]]; then
+    PYTHON_PATH="$PROJECT_ROOT/.venv/bin/python"
 elif command -v python3 >/dev/null 2>&1; then
     PYTHON_PATH="$(command -v python3)"
 fi
@@ -201,13 +209,13 @@ MUTATION_STARTED=false
 UPDATE_SUCCEEDED=false
 HAD_LOCAL_IP=false
 HAD_LEGACY_IP=false
-[[ -f $SCRIPT_DIR/ip.local.txt ]] && HAD_LOCAL_IP=true
+[[ -f $PROJECT_ROOT/ip.local.txt ]] && HAD_LOCAL_IP=true
 
 restore_local_files() {
     if [[ -n $BACKUP_DIR ]]; then
         if [[ $HAD_CONFIG == true && -f $BACKUP_DIR/config.json ]]; then
             local restore_stage
-            restore_stage="$(mktemp "$SCRIPT_DIR/.config.json.restore.XXXXXX")"
+            restore_stage="$(mktemp "$PROJECT_ROOT/.config.json.restore.XXXXXX")"
             if install -m 600 "$BACKUP_DIR/config.json" "$restore_stage"; then
                 mv -f "$restore_stage" "$CONFIG_PATH"
             else
@@ -219,12 +227,12 @@ restore_local_files() {
             rm -f "$CONFIG_PATH"
         fi
         if [[ $HAD_LOCAL_IP == true && -f $BACKUP_DIR/ip.local.txt ]]; then
-            cp -f "$BACKUP_DIR/ip.local.txt" "$SCRIPT_DIR/ip.local.txt"
+            cp -f "$BACKUP_DIR/ip.local.txt" "$PROJECT_ROOT/ip.local.txt"
         elif [[ $HAD_LOCAL_IP != true ]]; then
-            rm -f "$SCRIPT_DIR/ip.local.txt"
+            rm -f "$PROJECT_ROOT/ip.local.txt"
         fi
         if [[ $HAD_LEGACY_IP == true && -f $BACKUP_DIR/ip.legacy.txt ]]; then
-            cp -f "$BACKUP_DIR/ip.legacy.txt" "$SCRIPT_DIR/ip.txt"
+            cp -f "$BACKUP_DIR/ip.legacy.txt" "$PROJECT_ROOT/ip.txt"
         fi
     elif [[ $HAD_CONFIG != true ]]; then
         rm -f "$CONFIG_PATH"
@@ -248,7 +256,7 @@ trap 'exit 143' TERM
 trap 'exit 129' HUP
 
 REMOTE_TEMPLATE="$TEMP_DIR/config.example.json"
-if ! git show "$REMOTE_HEAD:config.example.json" > "$REMOTE_TEMPLATE"; then
+if ! git show "$REMOTE_HEAD:config/config.example.json" > "$REMOTE_TEMPLATE"; then
     echo -e "${RED}❌ origin/$BRANCH 缺少 config.example.json，未修改工作树。${NC}" >&2
     exit 2
 fi
@@ -298,7 +306,7 @@ elif [[ $PRESERVE_MISSING_CONFIG != true ]]; then
     CONFIG_CHANGE=true
 fi
 
-if [[ -f $SCRIPT_DIR/ip.txt ]]; then
+if [[ -f $PROJECT_ROOT/ip.txt ]]; then
     if ! git ls-files --error-unmatch ip.txt >/dev/null 2>&1 \
         || ! git diff --quiet -- ip.txt \
         || ! git diff --cached --quiet -- ip.txt; then
@@ -325,11 +333,11 @@ if [[ $HAD_CONFIG == true || $HAD_LOCAL_IP == true || $HAD_LEGACY_IP == true ]];
         chmod 600 "$BACKUP_DIR/config.json"
     fi
     if [[ $HAD_LOCAL_IP == true ]]; then
-        cp -f "$SCRIPT_DIR/ip.local.txt" "$BACKUP_DIR/ip.local.txt"
+        cp -f "$PROJECT_ROOT/ip.local.txt" "$BACKUP_DIR/ip.local.txt"
         chmod 600 "$BACKUP_DIR/ip.local.txt" 2>/dev/null || true
     fi
     if [[ $HAD_LEGACY_IP == true ]]; then
-        cp -f "$SCRIPT_DIR/ip.txt" "$BACKUP_DIR/ip.legacy.txt"
+        cp -f "$PROJECT_ROOT/ip.txt" "$BACKUP_DIR/ip.legacy.txt"
         chmod 600 "$BACKUP_DIR/ip.legacy.txt" 2>/dev/null || true
     fi
     echo -e "${YELLOW}配置备份：$BACKUP_DIR${NC}"
@@ -345,26 +353,26 @@ if [[ $SOURCE_CHANGE == true ]]; then
     if git ls-files --error-unmatch ip.txt >/dev/null 2>&1; then
         git restore --staged --worktree -- ip.txt
     elif [[ $HAD_LEGACY_IP == true ]]; then
-        rm -f "$SCRIPT_DIR/ip.txt"
+        rm -f "$PROJECT_ROOT/ip.txt"
     fi
     git merge --ff-only "origin/$BRANCH"
 elif [[ $HAD_LEGACY_IP == true ]]; then
     if git ls-files --error-unmatch ip.txt >/dev/null 2>&1; then
         git restore --staged --worktree -- ip.txt
     else
-        rm -f "$SCRIPT_DIR/ip.txt"
+        rm -f "$PROJECT_ROOT/ip.txt"
     fi
 fi
 
 if [[ $CONFIG_CHANGE == true ]]; then
-    CONFIG_STAGE="$(mktemp "$SCRIPT_DIR/.config.json.update.XXXXXX")"
+    CONFIG_STAGE="$(mktemp "$PROJECT_ROOT/.config.json.update.XXXXXX")"
     install -m 600 "$MERGED_CONFIG" "$CONFIG_STAGE"
     mv -f "$CONFIG_STAGE" "$CONFIG_PATH"
 fi
 if [[ $HAD_LOCAL_IP == true && -n $BACKUP_DIR ]]; then
-    cp -f "$BACKUP_DIR/ip.local.txt" "$SCRIPT_DIR/ip.local.txt"
+    cp -f "$BACKUP_DIR/ip.local.txt" "$PROJECT_ROOT/ip.local.txt"
 elif [[ $HAD_LEGACY_IP == true && -n $BACKUP_DIR ]]; then
-    cp -f "$BACKUP_DIR/ip.legacy.txt" "$SCRIPT_DIR/ip.local.txt"
+    cp -f "$BACKUP_DIR/ip.legacy.txt" "$PROJECT_ROOT/ip.local.txt"
 fi
 
 UPDATE_SUCCEEDED=true

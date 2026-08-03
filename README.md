@@ -54,6 +54,8 @@ bash setup.sh
 
 首次运行只会生成 `config.json` 并退出，请先修改配置。
 
+公开入口保持为根目录的 `main.py`、`setup.ps1` 和 `setup.sh`。内部实现位于 `core/`，规范配置模板位于 `config/config.example.json`；维护者内部使用 `python -m core.github_sync`、`python -m core.scheduled_run` 和 `scripts/update_fork.*`。旧安装应重新运行 setup，以迁移到模块化定时任务和分组后的更新器。
+
 #### 3. 修改 config.json
 
 - `GITHUB_SYNC_FIELD_ID` - 使用不含个人信息的别名，例如 `device-a`；该值会出现在公开的 `ip.txt` 中
@@ -94,7 +96,7 @@ bash setup.sh
 - 📄 **本地结果** - 当前终端结果保存在 `ip.local.txt`
 - 🌐 **远端结果** - 多终端汇总保存在 GitHub `ip.txt`，每个终端默认最多上传 3 行
 - 🔐 **配置安全** - `config.json` 会被 Git 忽略，但仍是明文文件，请使用最小权限 Token
-- 🔒 **链式安全** - 订阅 URL 含 Token；仅写入本地 `config.json`，不要放进 `config.example.json`、日志或公开仓库
+- 🔒 **链式安全** - 订阅 URL 含 Token；仅写入本地 `config.json`，不要放进 `config/config.example.json`、日志或公开仓库
 - 💾 **更新备份** - 无变化时不创建备份；默认固定保留最新一份于用户主目录，不会按时间戳无限累积
 - 🧩 **DNS 模式** - `TXT` 保存 `IP:端口`；`A` 保存纯 IPv4，作为入口域名时保持 `CF_PROXIED=false`
 
@@ -120,7 +122,7 @@ bash setup.sh
 - ⚖️ **體驗評分** - 綜合回應速度、穩定性和頻寬，避免只追求單項最高值
 - 🏆 **最佳輸出** - 全域模式預設保留綜合體驗最好的 3 個節點
 - 📤 **多終端同步** - 每台終端只替換遠端 `ip.txt` 中屬於自己的記錄
-- ⏱️ **峰谷排程** - 北京時間 18:00–24:00 每 60 分鐘執行，其餘時段每 180 分鐘執行
+- ⏱️ **峰谷排程** - 依北京時間固定時點執行：00:00–18:00 每 3 小時，18:00–24:00 每 1.5 小時
 - 🖥️ **一鍵部署** - setup 自動更新程式碼、建立 `.venv`、安裝依賴並管理排程任務
 - ☁️ **可選發佈** - 支援 GitHub、Cloudflare DNS 和 WxPusher 異常通知
 
@@ -153,6 +155,8 @@ bash setup.sh
 ```
 
 首次執行只會產生 `config.json` 並退出，請先修改設定。
+
+公開入口維持為根目錄的 `main.py`、`setup.ps1` 與 `setup.sh`。內部實作位於 `core/`，規範設定範本位於 `config/config.example.json`；維護者內部使用 `python -m core.github_sync`、`python -m core.scheduled_run` 與 `scripts/update_fork.*`。舊安裝應重新執行 setup，以遷移至模組化排程任務與分組後的更新器。
 
 #### 3. 修改 config.json
 
@@ -194,7 +198,7 @@ bash setup.sh
 - 📄 **本機結果** - 目前終端結果儲存在 `ip.local.txt`
 - 🌐 **遠端結果** - 多終端彙總儲存在 GitHub `ip.txt`，每個終端預設最多上傳 3 行
 - 🔐 **設定安全** - `config.json` 會被 Git 忽略，但仍是明文檔案，請使用最小權限 Token
-- 🔒 **鏈式安全** - 訂閱 URL 含 Token；僅寫入本機 `config.json`，不要放進 `config.example.json`、日誌或公開倉庫
+- 🔒 **鏈式安全** - 訂閱 URL 含 Token；僅寫入本機 `config.json`，不要放進 `config/config.example.json`、日誌或公開倉庫
 - 💾 **更新備份** - 沒有變更時不建立備份；預設固定保留最新一份於使用者主目錄，不會依時間戳無限累積
 - 🧩 **DNS 模式** - `TXT` 儲存 `IP:連接埠`；`A` 儲存純 IPv4，作為入口網域時保持 `CF_PROXIED=false`
 
@@ -220,7 +224,7 @@ A cross-platform IP selection tool for Cloudflare CDN and EdgeTunnel proxy scena
 - ⚖️ **Experience scoring** - Balances responsiveness, stability, and bandwidth instead of maximizing one metric
 - 🏆 **Best endpoint output** - Keeps the three best overall endpoints by default
 - 📤 **Multi-device sync** - Each device replaces only its own lines in the remote `ip.txt`
-- ⏱️ **Peak/off-peak schedule** - Runs every 60 minutes from 18:00 to 24:00 Beijing time and every 180 minutes otherwise
+- ⏱️ **Peak/off-peak schedule** - Uses fixed Beijing-time slots: every three hours from 00:00 to 18:00 and every 90 minutes from 18:00 to 24:00
 - 🖥️ **One-command setup** - Setup updates code, creates `.venv`, installs dependencies, and manages scheduled tasks
 - ☁️ **Optional publishing** - Supports GitHub, Cloudflare DNS, and WxPusher error notifications
 
@@ -253,6 +257,8 @@ bash setup.sh
 ```
 
 The first run only creates `config.json` and exits. Edit the configuration before continuing.
+
+The stable public entry points remain root-level `main.py`, `setup.ps1`, and `setup.sh`. Internal implementation lives under `core/`, and the canonical template is `config/config.example.json`; maintainer-only commands use `python -m core.github_sync`, `python -m core.scheduled_run`, and `scripts/update_fork.*`. Existing installations should rerun setup to migrate to the module-based scheduler and grouped updater.
 
 #### 3. Edit config.json
 
@@ -294,7 +300,7 @@ Run manually:
 - 📄 **Local results** - Results for the current device are stored in `ip.local.txt`
 - 🌐 **Remote results** - Aggregated results are stored in GitHub `ip.txt`, with three lines per device by default
 - 🔐 **Configuration safety** - Git ignores `config.json`, but it remains plaintext; use least-privilege tokens
-- 🔒 **Chain-test safety** - The subscription URL contains a token; keep it only in local `config.json`, never in `config.example.json`, logs, or public repositories
+- 🔒 **Chain-test safety** - The subscription URL contains a token; keep it only in local `config.json`, never in `config/config.example.json`, logs, or public repositories
 - 💾 **Update backups** - No backup is created when nothing changed; by default one latest backup is kept in the user home directory without timestamp accumulation
 - 🧩 **DNS modes** - `TXT` stores `IP:port`; `A` stores plain IPv4 and should keep `CF_PROXIED=false` for an entry hostname
 

@@ -4,7 +4,6 @@
 import argparse
 import base64
 import json
-import os
 import re
 import sys
 import time
@@ -13,7 +12,8 @@ from urllib.parse import quote
 
 import requests
 
-from local_state import resolve_local_output
+from core.local_state import resolve_local_output
+from core.paths import CONFIG_FILE
 
 
 NODE_LINE_RE = re.compile(
@@ -175,9 +175,8 @@ def sync(config_path, input_path=None):
 
 
 def main():
-    script_dir = os.path.dirname(os.path.abspath(__file__))
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", default=os.path.join(script_dir, "config.json"))
+    parser.add_argument("--config", default=str(CONFIG_FILE))
     parser.add_argument(
         "--input",
         help="本机优选结果文件；省略时读取 config.json 的 OUTPUT_FILE",

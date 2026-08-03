@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def run(command, cwd, env=None, timeout=30):
@@ -52,9 +52,25 @@ class SetupUpdateIntegrationTests(unittest.TestCase):
         )
         fake_crontab.chmod(0o755)
 
-        for name in ("setup.sh", "update_fork.sh"):
-            shutil.copy2(PROJECT_ROOT / name, self.seed / name)
+        shutil.copy2(PROJECT_ROOT / "setup.sh", self.seed / "setup.sh")
+        (self.seed / "scripts").mkdir()
+        shutil.copy2(
+            PROJECT_ROOT / "scripts" / "update_fork.sh",
+            self.seed / "scripts" / "update_fork.sh",
+        )
+        legacy_updater = self.seed / "update_fork.sh"
+        legacy_updater.write_text(
+            "#!/usr/bin/env bash\n"
+            'exec bash "$(dirname "$0")/scripts/update_fork.sh" "$@"\n',
+            encoding="utf-8",
+        )
+        legacy_updater.chmod(0o755)
+        (self.seed / "main.py").write_text("raise SystemExit(0)\n", encoding="utf-8")
         self._write_template(version=1)
+        shutil.copy2(
+            self.seed / "config" / "config.example.json",
+            self.seed / "config.example.json",
+        )
         (self.seed / ".gitignore").write_text("*.pyc\n", encoding="utf-8")
 
         run(["git", "init", "-b", "main"], self.seed)
@@ -83,14 +99,18 @@ class SetupUpdateIntegrationTests(unittest.TestCase):
         if version >= 2:
             template["NEW_SETTING"] = 42
             template["UPDATE_BACKUP_RETENTION"] = 1
-        (self.seed / "config.example.json").write_text(
+        config_dir = self.seed / "config"
+        config_dir.mkdir(exist_ok=True)
+        (config_dir / "config.example.json").write_text(
             json.dumps(template, ensure_ascii=False, indent=4) + "\n",
             encoding="utf-8",
         )
 
     def _push_v2(self):
         self._write_template(version=2)
-        run(["git", "add", "config.example.json"], self.seed)
+        (self.seed / "update_fork.sh").unlink(missing_ok=True)
+        (self.seed / "config.example.json").unlink(missing_ok=True)
+        run(["git", "add", "-A"], self.seed)
         run(["git", "commit", "-m", "v2"], self.seed)
         run(["git", "push", "origin", "main"], self.seed)
 
@@ -114,6 +134,8 @@ class SetupUpdateIntegrationTests(unittest.TestCase):
             config = json.load(file)
         self.assertEqual(42, config["NEW_SETTING"])
         self.assertFalse((self.client / ".venv").exists())
+        self.assertFalse((self.client / "update_fork.sh").exists())
+        self.assertFalse((self.client / "config.example.json").exists())
         self.assertIn("首次部署到此暂停", completed.stdout)
         self.assertNotIn("是否立即运行一次", completed.stdout)
         self.assertEqual(
@@ -154,7 +176,7 @@ class SetupUpdateIntegrationTests(unittest.TestCase):
 
         command = [
             "bash",
-            "update_fork.sh",
+            "scripts/update_fork.sh",
             "--non-interactive",
             "--preserve-missing-config",
         ]
@@ -199,7 +221,7 @@ class SetupUpdateIntegrationTests(unittest.TestCase):
         completed = run(
             [
                 "bash",
-                "update_fork.sh",
+                "scripts/update_fork.sh",
                 "--non-interactive",
                 "--preserve-missing-config",
             ],
@@ -224,7 +246,7 @@ class SetupUpdateIntegrationTests(unittest.TestCase):
         completed = subprocess.run(
             [
                 "bash",
-                "update_fork.sh",
+                "scripts/update_fork.sh",
                 "--non-interactive",
                 "--preserve-missing-config",
             ],
@@ -265,7 +287,7 @@ class SetupUpdateIntegrationTests(unittest.TestCase):
         completed = subprocess.run(
             [
                 "bash",
-                "update_fork.sh",
+                "scripts/update_fork.sh",
                 "--non-interactive",
                 "--preserve-missing-config",
             ],
@@ -302,7 +324,7 @@ class SetupUpdateIntegrationTests(unittest.TestCase):
         run(
             [
                 "bash",
-                "update_fork.sh",
+                "scripts/update_fork.sh",
                 "--non-interactive",
                 "--preserve-missing-config",
             ],

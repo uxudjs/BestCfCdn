@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "moves": [
+    {
+      "source": "tests/test_chain_proxy.py",
+      "target": "work-products/tests/test_chain_proxy.py",
+      "tracking": "tracked",
+      "rewritePolicy": "references"
+    },
+    {
+      "source": "tests/test_measurement_flow.py",
+      "target": "work-products/tests/test_measurement_flow.py",
+      "tracking": "tracked",
+      "rewritePolicy": "references"
+    },
+    {
+      "source": "tests/test_multi_terminal_sync.py",
+      "target": "work-products/tests/test_multi_terminal_sync.py",
+      "tracking": "tracked",
+      "rewritePolicy": "references"
+    },
+    {
+      "source": "tests/test_proxy_scoring.py",
+      "target": "work-products/tests/test_proxy_scoring.py",
+      "tracking": "tracked",
+      "rewritePolicy": "references"
+    },
+    {
+      "source": "tests/test_setup_update_integration.py",
+      "target": "work-products/tests/test_setup_update_integration.py",
+      "tracking": "tracked",
+      "rewritePolicy": "references"
+    },
+    {
+      "source": "tests/test_windows_updater.py",
+      "target": "work-products/tests/test_windows_updater.py",
+      "tracking": "tracked",
+      "rewritePolicy": "references"
+    }
+  ]
+}

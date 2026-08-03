@@ -6,10 +6,11 @@ import os
 import tempfile
 import unittest
 import zipfile
+from pathlib import Path
 from urllib.parse import urlencode
 from unittest import mock
 
-from chain_proxy import (
+from core.chain_proxy import (
     ChainProxyError,
     _sing_box_asset,
     build_sing_box_config,
@@ -232,6 +233,20 @@ class ChainProxyTests(unittest.TestCase):
             ("sing-box-1.13.12-linux-arm64.tar.gz", "sing-box"),
         )
 
+    def test_default_core_path_stays_in_the_repository_runtime_directory(self):
+        expected = Path(__file__).resolve().parents[2] / ".sing-box" / "sing-box.exe"
+        with mock.patch("core.chain_proxy.shutil.which", return_value=None), mock.patch(
+            "core.chain_proxy.platform.system", return_value="Windows"
+        ), mock.patch(
+            "core.chain_proxy.os.path.isfile",
+            side_effect=lambda path: os.path.normcase(path)
+            == os.path.normcase(str(expected)),
+        ), mock.patch("core.chain_proxy._download_sing_box") as download:
+            path = resolve_sing_box_path()
+
+        self.assertEqual(str(expected), path)
+        download.assert_not_called()
+
     def test_missing_core_downloads_verified_windows_asset_into_project(self):
         executable = b"mock sing-box executable"
         archive_buffer = io.BytesIO()
@@ -258,11 +273,11 @@ class ChainProxyTests(unittest.TestCase):
         ).encode()
 
         with tempfile.TemporaryDirectory() as project_dir, mock.patch(
-            "chain_proxy.shutil.which", return_value=None
-        ), mock.patch("chain_proxy.platform.system", return_value="Windows"), mock.patch(
-            "chain_proxy.platform.machine", return_value="AMD64"
+            "core.chain_proxy.shutil.which", return_value=None
+        ), mock.patch("core.chain_proxy.platform.system", return_value="Windows"), mock.patch(
+            "core.chain_proxy.platform.machine", return_value="AMD64"
         ), mock.patch(
-            "chain_proxy.urlopen",
+            "core.chain_proxy.urlopen",
             side_effect=[
                 io.BytesIO(release),
                 io.BytesIO(archive[:100]),
@@ -296,11 +311,11 @@ class ChainProxyTests(unittest.TestCase):
         ).encode()
 
         with tempfile.TemporaryDirectory() as project_dir, mock.patch(
-            "chain_proxy.shutil.which", return_value=None
-        ), mock.patch("chain_proxy.platform.system", return_value="Linux"), mock.patch(
-            "chain_proxy.platform.machine", return_value="x86_64"
+            "core.chain_proxy.shutil.which", return_value=None
+        ), mock.patch("core.chain_proxy.platform.system", return_value="Linux"), mock.patch(
+            "core.chain_proxy.platform.machine", return_value="x86_64"
         ), mock.patch(
-            "chain_proxy.urlopen",
+            "core.chain_proxy.urlopen",
             side_effect=[io.BytesIO(release), io.BytesIO(b"corrupt")],
         ):
             with self.assertRaisesRegex(ChainProxyError, "SHA-256 校验失败"):

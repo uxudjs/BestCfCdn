@@ -1,8 +1,9 @@
 ﻿# git_sync.ps1
-# 功能：调用并发安全同步程序，只更新 config.json 中本终端对应的节点。
+# 功能：调用并发安全同步模块，只更新 config.json 中本终端对应的节点。
 
 $ErrorActionPreference = "Stop"
-Set-Location $PSScriptRoot
+$ProjectRoot = Split-Path -Parent $PSScriptRoot
+Set-Location $ProjectRoot
 $env:PYTHONUTF8 = "1"
 $env:PYTHONIOENCODING = "utf-8"
 try {
@@ -11,7 +12,7 @@ try {
     $OutputEncoding = $utf8NoBom
 } catch { }
 
-$venvPython = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"
+$venvPython = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
 if (Test-Path $venvPython) {
     $pythonPath = $venvPython
 } else {
@@ -24,5 +25,5 @@ if (-not $pythonPath) {
     exit 1
 }
 
-& $pythonPath -X utf8 (Join-Path $PSScriptRoot "github_sync.py")
+& $pythonPath -X utf8 -m core.github_sync
 exit $LASTEXITCODE

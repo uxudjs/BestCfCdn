@@ -7,7 +7,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 try { $Host.UI.RawUI.WindowTitle = "BestCfCdn 安全更新" } catch { }
-Set-Location $PSScriptRoot
+$ProjectRoot = Split-Path -Parent $PSScriptRoot
+Set-Location $ProjectRoot
 $env:PYTHONUTF8 = "1"
 $env:PYTHONIOENCODING = "utf-8"
 try {
@@ -41,8 +42,23 @@ function Invoke-Git {
     }
 }
 
+function Assert-ProjectLayout {
+    $gitMetadata = Join-Path $ProjectRoot ".git"
+    $mainEntry = Join-Path $ProjectRoot "main.py"
+    $configTemplate = Join-Path $ProjectRoot "config\config.example.json"
+
+    if (-not (Test-Path -LiteralPath $gitMetadata -PathType Container)) {
+        throw "未找到仓库根目录 .git/，已拒绝更新。"
+    }
+    foreach ($requiredFile in @($mainEntry, $configTemplate)) {
+        if (-not (Test-Path -LiteralPath $requiredFile -PathType Leaf)) {
+            throw "仓库布局不完整，已拒绝更新：$requiredFile"
+        }
+    }
+}
+
 function Get-UpdatePython {
-    $venvPython = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"
+    $venvPython = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
     if (Test-Path -LiteralPath $venvPython -PathType Leaf) {
         return @{ Path = $venvPython; Prefix = @() }
     }
@@ -157,6 +173,8 @@ function Set-ManagedBackupRetention {
     }
 }
 
+Assert-ProjectLayout
+
 $git = Get-Command git.exe -CommandType Application -ErrorAction SilentlyContinue |
     Select-Object -First 1
 if (-not $git) { throw "未找到 git.exe，请先运行 setup.ps1。" }
@@ -167,8 +185,8 @@ if (-not $insideRepo.Success) { throw "当前目录不是 Git 仓库。" }
 $repositoryRootResult = Invoke-Git -Arguments @("rev-parse", "--show-toplevel") -Quiet
 $repositoryRoot = ($repositoryRootResult.Output -join "").Trim()
 if (-not $repositoryRoot -or
-        ([IO.Path]::GetFullPath($repositoryRoot) -ne [IO.Path]::GetFullPath($PSScriptRoot))) {
-    throw "update_fork.ps1 必须位于当前 Git 仓库根目录，已拒绝更新。"
+        ([IO.Path]::GetFullPath($repositoryRoot) -ne [IO.Path]::GetFullPath($ProjectRoot))) {
+    throw "scripts/update_fork.ps1 的父目录必须是当前 Git 仓库根目录，已拒绝更新。"
 }
 
 $currentBranchResult = Invoke-Git -Arguments @("branch", "--show-current") -Quiet
@@ -187,12 +205,12 @@ if ($unrelatedChanges.Count -gt 0) {
     throw "请先提交或暂存上述改动。"
 }
 
-$configPath = Join-Path $PSScriptRoot "config.json"
+$configPath = Join-Path $ProjectRoot "config.json"
 if ((Test-Path -LiteralPath $configPath) -and -not (Test-Path -LiteralPath $configPath -PathType Leaf)) {
     throw "config.json 已存在但不是普通文件。"
 }
 $configExistedBeforeUpdate = Test-Path -LiteralPath $configPath -PathType Leaf
-$localIpExistedBeforeUpdate = Test-Path -LiteralPath (Join-Path $PSScriptRoot "ip.local.txt") -PathType Leaf
+$localIpExistedBeforeUpdate = Test-Path -LiteralPath (Join-Path $ProjectRoot "ip.local.txt") -PathType Leaf
 $BackupRetention = 1
 
 # 存在旧配置时，必须先确认能够完整解析；验证失败时不触碰 Git 工作树。
@@ -254,8 +272,8 @@ if (-not $fastForwardCheck.Success) {
 $remoteHeadResult = Invoke-Git -Arguments @("rev-parse", "origin/$Branch") -Quiet
 $remoteHead = ($remoteHeadResult.Output -join "").Trim()
 $sourceChange = $startHead -ne $remoteHead
-$configTempPath = Join-Path $PSScriptRoot (".config.json.update.{0}.{1}.tmp" -f $PID, ([guid]::NewGuid()).ToString("N"))
-$configTemplate = Join-Path $PSScriptRoot "config.example.json"
+$configTempPath = Join-Path $ProjectRoot (".config.json.update.{0}.{1}.tmp" -f $PID, ([guid]::NewGuid()).ToString("N"))
+$configTemplate = Join-Path $ProjectRoot "config\config.example.json"
 $configChange = $false
 
 $mergeCode = @'
@@ -364,7 +382,7 @@ try {
     $null = Invoke-Git -Arguments @("merge", "--ff-only", "origin/$Branch")
 
     $configBackup = if ($BackupDir) { Join-Path $BackupDir "config.json" } else { $null }
-    $configTemplate = Join-Path $PSScriptRoot "config.example.json"
+    $configTemplate = Join-Path $ProjectRoot "config\config.example.json"
     if (-not (Test-Path -LiteralPath $configTemplate -PathType Leaf)) {
         throw "更新后缺少 config.example.json。"
     }

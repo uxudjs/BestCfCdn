@@ -9,3 +9,10 @@ ip.local.txt
 valid_tokens.txt
 ipinfo_cache.txt
 cfnb.log
+/work-products/*
+!/work-products/SPEC.md
+!/work-products/plan.md
+!/work-products/todo.md
+!/work-products/clean-migration.json
+!/work-products/tests/
+!/work-products/tests/**

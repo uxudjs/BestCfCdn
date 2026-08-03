@@ -24,7 +24,8 @@ $TaskName = "Cloudflare IP 优选"
 $TaskIntervalMinutes = 30
 $PythonExePath = $null
 $ScriptDir = $PSScriptRoot
-$PythonScriptPath = Join-Path $ScriptDir "scheduled_run.py"
+$PythonScriptPath = Join-Path $ScriptDir "core\scheduled_run.py"
+$SchedulerModule = "core.scheduled_run"
 $WorkingDirectory = $ScriptDir
 $TunaPyPI = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"
 $OfficialPyPI = "https://pypi.org/simple"
@@ -276,7 +277,7 @@ Set-Location $ScriptDir
 # ---------- 首先安全更新代码，普通用户始终只需运行 setup.ps1 ----------
 if (-not $SkipAutoUpdate) {
     Write-Host "正在检查 GitHub 上的项目更新..." -ForegroundColor Cyan
-    $updateScriptPath = Join-Path $ScriptDir "update_fork.ps1"
+    $updateScriptPath = Join-Path $ScriptDir "scripts\update_fork.ps1"
     $gitForUpdate = Get-Command git.exe -CommandType Application -ErrorAction SilentlyContinue |
         Select-Object -First 1
     $repositoryRoot = if ($gitForUpdate) { Get-RepositoryRoot -GitPath $gitForUpdate.Source } else { $null }
@@ -357,7 +358,7 @@ Set-Location $ScriptDir
 Write-Host "工作目录: $ScriptDir`n" -ForegroundColor Gray
 
 $configPath = Join-Path $ScriptDir "config.json"
-$configTemplatePath = Join-Path $ScriptDir "config.example.json"
+$configTemplatePath = Join-Path $ScriptDir "config\config.example.json"
 if ((Test-Path -LiteralPath $configPath) -and -not (Test-Path -LiteralPath $configPath -PathType Leaf)) {
     throw "config.json 已存在但不是普通文件。"
 }
@@ -484,9 +485,9 @@ Write-Host "✅ Python 依赖安装并验证完成" -ForegroundColor Green
 
 # ---------- 5. 保留已有 .gitignore，只补充运行时条目 ----------
 Write-Host "[5/5] 检查运行文件与 .gitignore..." -ForegroundColor Green
-$requiredFilesMissing = (-not (Test-Path $PythonScriptPath)) -or (-not (Test-Path (Join-Path $ScriptDir "main.py"))) -or (-not (Test-Path (Join-Path $ScriptDir "proxy_scoring.py")))
+$requiredFilesMissing = (-not (Test-Path $PythonScriptPath)) -or (-not (Test-Path (Join-Path $ScriptDir "main.py"))) -or (-not (Test-Path (Join-Path $ScriptDir "core\proxy_scoring.py")))
 if ($requiredFilesMissing) {
-    throw "未找到 scheduled_run.py、main.py 或 proxy_scoring.py。"
+    throw "未找到调度模块、main.py 或 core/proxy_scoring.py。"
 }
 Add-GitIgnoreEntries -Path (Get-RuntimeIgnorePath) -Entries @(
     ".venv/", "__pycache__/", "*.py[cod]", ".cfnb_schedule.lock", "cron.log",
@@ -547,7 +548,7 @@ if (-not $scheduleEnabled) {
 
         $action = $taskDefinition.Actions.Create(0)
         $action.Path = $PythonExePath
-        $action.Arguments = "-X utf8 `"$PythonScriptPath`""
+        $action.Arguments = "-X utf8 -m $SchedulerModule"
         $action.WorkingDirectory = $WorkingDirectory
 
         $rootFolder.RegisterTaskDefinition($TaskName, $taskDefinition, 6, "SYSTEM", $null, 5) | Out-Null
@@ -556,7 +557,7 @@ if (-not $scheduleEnabled) {
     } catch {
         Write-Host "⚠️ COM 创建失败：$_" -ForegroundColor Yellow
         Write-Host "  尝试 schtasks 备用方式..." -ForegroundColor Yellow
-        $taskCommand = "`"$PythonExePath`" -X utf8 `"$PythonScriptPath`""
+        $taskCommand = "`"$env:ComSpec`" /d /c `"cd /d `"`"$WorkingDirectory`"`" && `"`"$PythonExePath`"`" -X utf8 -m $SchedulerModule`""
         $schtasksOk = Invoke-NativeCommand -FilePath "schtasks.exe" -Arguments @(
             "/Create", "/TN", $TaskName,
             "/TR", $taskCommand,

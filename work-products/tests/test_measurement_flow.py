@@ -4,7 +4,7 @@ import unittest
 from contextlib import redirect_stdout
 from unittest import mock
 
-import main
+from core import app as main
 
 
 class MeasurementFlowTests(unittest.TestCase):
@@ -33,18 +33,20 @@ class MeasurementFlowTests(unittest.TestCase):
             {"PYTHONUTF8": "0", "PYTHONIOENCODING": "cp950"},
         ):
             with mock.patch.multiple(main, **settings), mock.patch(
-                "main.subprocess.Popen", return_value=process
-            ) as popen, mock.patch("main.send_wxpusher_notification"):
+                "core.app.subprocess.Popen", return_value=process
+            ) as popen, mock.patch("core.app.send_wxpusher_notification"):
                 main.sync_to_github()
 
         command = popen.call_args.args[0]
         options = popen.call_args.kwargs
         self.assertEqual(["-X", "utf8"], command[1:3])
+        self.assertEqual(["-m", "core.github_sync"], command[3:5])
         self.assertEqual("utf-8", options["encoding"])
         self.assertEqual("replace", options["errors"])
         self.assertTrue(options["text"])
         self.assertEqual("1", options["env"]["PYTHONUTF8"])
         self.assertEqual("utf-8", options["env"]["PYTHONIOENCODING"])
+        self.assertEqual(main.os.path.dirname(main.CONFIG_FILE), options["cwd"])
         process.communicate.assert_called_once_with(timeout=10)
 
     def test_tcp_latency_uses_median_successful_probe(self):
@@ -53,8 +55,8 @@ class MeasurementFlowTests(unittest.TestCase):
         socket_context.__enter__.return_value = socket_instance
         socket_context.__exit__.return_value = False
 
-        with mock.patch("main.socket.socket", return_value=socket_context), mock.patch(
-            "main.time.perf_counter",
+        with mock.patch("core.app.socket.socket", return_value=socket_context), mock.patch(
+            "core.app.time.perf_counter",
             side_effect=[0.0, 0.1, 1.0, 1.5, 2.0, 2.2],
         ):
             latency, successes = main.test_tcp_latency(
@@ -71,12 +73,12 @@ class MeasurementFlowTests(unittest.TestCase):
         request_results = [RuntimeError("temporary failure")] + [response] * 5
 
         with mock.patch(
-            "main.requests.head", side_effect=request_results
+            "core.app.requests.head", side_effect=request_results
         ) as request:
             with mock.patch(
-                "main.time.perf_counter",
+                "core.app.time.perf_counter",
                 side_effect=[0, 1, 2, 2.1, 3, 3.1, 4, 4.1, 5, 5.1],
-            ), mock.patch("main.time.sleep"):
+            ), mock.patch("core.app.time.sleep"):
                 node, valid, server, latency, jitter = main.check_http_server(
                     "104.16.0.1:443#US",
                     timeout=1,
@@ -109,7 +111,7 @@ class MeasurementFlowTests(unittest.TestCase):
             HTTP_TEST_CONNECT_TIMEOUT=1,
             HTTP_TEST_TIMEOUT=2,
             BANDWIDTH_PROCESS_BUFFER=1,
-        ), mock.patch("main.subprocess.run", side_effect=completed) as run:
+        ), mock.patch("core.app.subprocess.run", side_effect=completed) as run:
             node, valid, _, latency, jitter, success_rate = main.measure_chain_http(
                 "104.16.0.1:443#US", 31001, "curl.exe", samples=3
             )
@@ -143,7 +145,7 @@ class MeasurementFlowTests(unittest.TestCase):
                 stderr="",
             )
 
-        with mock.patch("main.subprocess.run", side_effect=fake_run) as run:
+        with mock.patch("core.app.subprocess.run", side_effect=fake_run) as run:
             result = main.measure_bandwidth_curl(
                 "104.16.0.1:443#US", curl_path="curl.exe"
             )
@@ -162,7 +164,7 @@ class MeasurementFlowTests(unittest.TestCase):
         completed = subprocess.CompletedProcess(
             [], 0, stdout=self.bandwidth_stdout(), stderr=""
         )
-        with mock.patch("main.subprocess.run", return_value=completed) as run:
+        with mock.patch("core.app.subprocess.run", return_value=completed) as run:
             result = main.measure_bandwidth_curl(
                 "104.16.0.1:8443#US", curl_path="curl.exe"
             )
@@ -176,7 +178,7 @@ class MeasurementFlowTests(unittest.TestCase):
         completed = subprocess.CompletedProcess(
             [], 0, stdout=self.bandwidth_stdout(), stderr=""
         )
-        with mock.patch("main.subprocess.run", return_value=completed) as run:
+        with mock.patch("core.app.subprocess.run", return_value=completed) as run:
             result = main.measure_bandwidth_curl(
                 "104.16.0.1:443#US",
                 curl_path="curl.exe",
@@ -199,7 +201,7 @@ class MeasurementFlowTests(unittest.TestCase):
             stdout=self.bandwidth_stdout(size=524288, time_total=8.0),
             stderr="operation timed out",
         )
-        with mock.patch("main.subprocess.run", return_value=completed):
+        with mock.patch("core.app.subprocess.run", return_value=completed):
             result = main.measure_bandwidth_curl(
                 "104.16.0.1:443#US", curl_path="curl.exe"
             )
@@ -215,7 +217,7 @@ class MeasurementFlowTests(unittest.TestCase):
             stdout=self.bandwidth_stdout(size=65536, time_total=8.0),
             stderr="operation timed out",
         )
-        with mock.patch("main.subprocess.run", return_value=completed):
+        with mock.patch("core.app.subprocess.run", return_value=completed):
             result = main.measure_bandwidth_curl(
                 "104.16.0.1:443#US", curl_path="curl.exe"
             )
@@ -233,7 +235,7 @@ class MeasurementFlowTests(unittest.TestCase):
         )
         with mock.patch.multiple(
             main, BANDWIDTH_MIN_PARTIAL_MB=3.0
-        ), mock.patch("main.subprocess.run", return_value=completed):
+        ), mock.patch("core.app.subprocess.run", return_value=completed):
             result = main.measure_bandwidth_curl(
                 "104.16.0.1:443#US", curl_path="curl.exe"
             )
@@ -248,7 +250,7 @@ class MeasurementFlowTests(unittest.TestCase):
             stdout=self.bandwidth_stdout(http_code=503),
             stderr="",
         )
-        with mock.patch("main.subprocess.run", return_value=completed):
+        with mock.patch("core.app.subprocess.run", return_value=completed):
             result = main.measure_bandwidth_curl(
                 "104.16.0.1:443#US", curl_path="curl.exe"
             )
@@ -264,7 +266,7 @@ class MeasurementFlowTests(unittest.TestCase):
             stdout=self.bandwidth_stdout(http_code=522),
             stderr="",
         )
-        with mock.patch("main.subprocess.run", return_value=completed):
+        with mock.patch("core.app.subprocess.run", return_value=completed):
             result = main.measure_bandwidth_curl(
                 "104.16.0.1:443#US", curl_path="curl.exe"
             )
@@ -282,7 +284,7 @@ class MeasurementFlowTests(unittest.TestCase):
             ),
             stderr="failed to connect",
         )
-        with mock.patch("main.subprocess.run", return_value=completed):
+        with mock.patch("core.app.subprocess.run", return_value=completed):
             result = main.measure_bandwidth_curl(
                 "104.16.0.1:443#US", curl_path="curl.exe"
             )
@@ -293,7 +295,7 @@ class MeasurementFlowTests(unittest.TestCase):
 
     def test_bandwidth_process_timeout_is_reported(self):
         with mock.patch(
-            "main.subprocess.run",
+            "core.app.subprocess.run",
             side_effect=subprocess.TimeoutExpired("curl", 10),
         ):
             result = main.measure_bandwidth_curl(
@@ -319,8 +321,8 @@ class MeasurementFlowTests(unittest.TestCase):
             )
 
         output = io.StringIO()
-        with mock.patch("main.shutil.which", return_value="curl.exe"), mock.patch(
-            "main.measure_bandwidth_curl", side_effect=fake_measure
+        with mock.patch("core.app.shutil.which", return_value="curl.exe"), mock.patch(
+            "core.app.measure_bandwidth_curl", side_effect=fake_measure
         ), redirect_stdout(output):
             measurements = main.bandwidth_filter(candidates)
 
@@ -350,8 +352,8 @@ class MeasurementFlowTests(unittest.TestCase):
         with mock.patch.multiple(
             main, BANDWIDTH_RETRY_MAX=2, BANDWIDTH_RETRY_DELAY=0
         ), mock.patch(
-            "main.bandwidth_filter", side_effect=fake_filter
-        ) as bandwidth_filter, mock.patch("main.time.sleep") as sleep:
+            "core.app.bandwidth_filter", side_effect=fake_filter
+        ) as bandwidth_filter, mock.patch("core.app.time.sleep") as sleep:
             results, failures, rounds = main.bandwidth_filter_with_retry(
                 [node_a, node_b, node_c]
             )
@@ -370,8 +372,8 @@ class MeasurementFlowTests(unittest.TestCase):
         with mock.patch.multiple(
             main, BANDWIDTH_RETRY_MAX=2, BANDWIDTH_RETRY_DELAY=0
         ), mock.patch(
-            "main.bandwidth_filter", return_value=[failure]
-        ) as bandwidth_filter, mock.patch("main.time.sleep") as sleep:
+            "core.app.bandwidth_filter", return_value=[failure]
+        ) as bandwidth_filter, mock.patch("core.app.time.sleep") as sleep:
             results, failures, rounds = main.bandwidth_filter_with_retry([node])
 
         self.assertEqual([], results)
@@ -401,8 +403,8 @@ class MeasurementFlowTests(unittest.TestCase):
         ]
 
         with mock.patch.multiple(main, **settings):
-            with mock.patch("main.requests.get", return_value=list_response), mock.patch(
-                "main.requests.post", return_value=batch_response
+            with mock.patch("core.app.requests.get", return_value=list_response), mock.patch(
+                "core.app.requests.post", return_value=batch_response
             ) as post:
                 main.batch_update_cloudflare_dns(
                     [],

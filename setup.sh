@@ -12,7 +12,7 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 TASK_INTERVAL_MINUTES=30
-PYTHON_SCRIPT="scheduled_run.py"
+PYTHON_MODULE="core.scheduled_run"
 TUNA_PYPI="https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"
 OFFICIAL_PYPI="https://pypi.org/simple"
 
@@ -175,9 +175,29 @@ read_target_crontab() {
 }
 
 filter_project_crontab() {
-    grep -v -F "$SCRIPT_DIR/main.py" \
-        | grep -v -F "$SCRIPT_DIR/$PYTHON_SCRIPT" \
-        | grep -v -F "# Cloudflare IP 优选工具" || true
+    awk -v dir="$SCRIPT_DIR" '
+        function is_project_command(line) {
+            return index(line, dir "/main.py") \
+                || index(line, dir "/scheduled_run.py") \
+                || (index(line, dir) && index(line, "-m core.scheduled_run"))
+        }
+        {
+            if (pending_comment != "") {
+                if (is_project_command($0)) {
+                    pending_comment = ""
+                    next
+                }
+                print pending_comment
+                pending_comment = ""
+            }
+            if (index($0, "# Cloudflare IP 优选工具") == 1) {
+                pending_comment = $0
+                next
+            }
+            if (!is_project_command($0)) { print }
+        }
+        END { if (pending_comment != "") print pending_comment }
+    ' || true
 }
 
 write_target_crontab() {
@@ -199,7 +219,7 @@ remove_project_cron_entries() {
 }
 
 CONFIG_PATH="$SCRIPT_DIR/config.json"
-CONFIG_TEMPLATE_PATH="$SCRIPT_DIR/config.example.json"
+CONFIG_TEMPLATE_PATH="$SCRIPT_DIR/config/config.example.json"
 CONFIG_EXISTED_AT_START=false
 [[ -f $CONFIG_PATH ]] && CONFIG_EXISTED_AT_START=true
 
@@ -209,7 +229,7 @@ SETUP_REEXEC_DEPTH="${BESTCFCDN_SETUP_REEXEC_DEPTH:-0}"
 SETUP_RETRY_AUTO_UPDATE="${BESTCFCDN_SETUP_RETRY_AUTO_UPDATE:-0}"
 [[ $SETUP_REEXEC_DEPTH =~ ^[0-9]+$ ]] || SETUP_REEXEC_DEPTH=0
 if [[ $SETUP_REEXEC_DEPTH == 0 || $SETUP_RETRY_AUTO_UPDATE == 1 ]]; then
-    UPDATE_HELPER="$SCRIPT_DIR/update_fork.sh"
+    UPDATE_HELPER="$SCRIPT_DIR/scripts/update_fork.sh"
     PROJECT_GIT_ROOT=""
     if command_exists git && [[ -f $UPDATE_HELPER ]]; then
         PROJECT_GIT_ROOT="$(run_as_target git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
@@ -384,8 +404,8 @@ echo -e "${GREEN}✅ Python 依赖安装并验证完成${NC}"
 
 # ---------- 4. 文件检查与 .gitignore ----------
 echo -e "${GREEN}[4/5] 检查运行文件与 .gitignore...${NC}"
-if [[ ! -f $PYTHON_SCRIPT || ! -f main.py || ! -f proxy_scoring.py || ! -f requirements.txt ]]; then
-    echo -e "${RED}❌ 缺少 scheduled_run.py、main.py、proxy_scoring.py 或 requirements.txt。${NC}" >&2
+if [[ ! -f core/scheduled_run.py || ! -f main.py || ! -f core/proxy_scoring.py || ! -f requirements.txt ]]; then
+    echo -e "${RED}❌ 缺少调度模块、main.py、core/proxy_scoring.py 或 requirements.txt。${NC}" >&2
     exit 1
 fi
 for entry in ".venv/" "__pycache__/" "*.py[cod]" ".cfnb_schedule.lock" "cron.log" \
@@ -397,7 +417,7 @@ echo -e "✅ 已保留原有 .gitignore，并补齐运行时条目"
 # ---------- 5. 按配置创建或清理 cron 计划任务 ----------
 escaped_dir=${SCRIPT_DIR//\"/\\\"}
 CRON_COMMENT="# Cloudflare IP 优选工具（中国CF CDN忙时90分钟/非忙时180分钟）"
-CRON_CMD="*/30 * * * * cd \"$escaped_dir\" && \"$PYTHON_PATH\" \"$escaped_dir/$PYTHON_SCRIPT\" >> \"$escaped_dir/cron.log\" 2>&1"
+CRON_CMD="*/30 * * * * cd \"$escaped_dir\" && \"$PYTHON_PATH\" -m $PYTHON_MODULE >> \"$escaped_dir/cron.log\" 2>&1"
 
 EXISTING_CRONTAB=""
 CLEANED_CRONTAB=""
@@ -433,7 +453,7 @@ if [[ $SCHEDULE_ENABLED == true ]] && command_exists systemctl \
     fi
 fi
 
-chmod +x setup.sh git_sync.sh 2>/dev/null || true
+chmod +x setup.sh scripts/git_sync.sh scripts/update_fork.sh 2>/dev/null || true
 
 echo -e "\n${CYAN}========================================"
 echo -e " 🎉 部署完成！"
