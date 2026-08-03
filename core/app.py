@@ -837,11 +837,6 @@ def load_ipinfo_cache(cache_file):
             cache[ipport.strip()] = tag.strip()
     return cache
 
-def save_ipinfo_cache(cache_file, new_records):
-    with open(cache_file, "a", encoding="utf-8") as f:
-        for ipport, tag in new_records:
-            f.write(f"{ipport}#{tag}\n")
-
 def sort_cache_file(cache_file):
     if not os.path.exists(cache_file):
         return

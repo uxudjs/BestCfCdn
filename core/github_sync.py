@@ -171,7 +171,6 @@ def sync(config_path, input_path=None):
             except ValueError:
                 detail = response.text
             raise RuntimeError(f"GitHub 更新失败（HTTP {response.status_code}）：{detail}")
-    return 1
 
 
 def main():
