@@ -156,6 +156,16 @@ class TheoreticalPlatformContractTests(unittest.TestCase):
         self.assertIn('PYTHON_MODULE="core.scheduled_run"', linux_setup)
         self.assertIn('dir "/scheduled_run.py"', linux_setup)
 
+    def test_linux_setup_does_not_change_tracked_helper_modes(self):
+        linux_setup = (PROJECT_ROOT / "setup.sh").read_text(encoding="utf-8")
+
+        self.assertIn('run_as_target bash "$UPDATE_HELPER"', linux_setup)
+        self.assertIn("chmod +x setup.sh", linux_setup)
+        self.assertNotIn(
+            "chmod +x setup.sh scripts/git_sync.sh scripts/update_fork.sh",
+            linux_setup,
+        )
+
     def test_updaters_validate_the_parent_root_before_mutating(self):
         windows = (PROJECT_ROOT / "scripts" / "update_fork.ps1").read_text(
             encoding="utf-8-sig"

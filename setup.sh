@@ -542,7 +542,7 @@ if [[ $SCHEDULE_ENABLED == true ]] && command_exists systemctl \
     fi
 fi
 
-chmod +x setup.sh scripts/git_sync.sh scripts/update_fork.sh 2>/dev/null || true
+chmod +x setup.sh 2>/dev/null || true
 
 echo -e "\n${CYAN}========================================"
 echo -e " 🎉 部署完成！"
