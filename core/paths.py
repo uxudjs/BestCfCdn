@@ -15,12 +15,13 @@ LOG_FILE = PROJECT_ROOT / "cfnb.log"
 CRON_LOG_FILE = PROJECT_ROOT / "cron.log"
 SCHEDULE_LOCK_FILE = PROJECT_ROOT / ".cfnb_schedule.lock"
 SING_BOX_DIR = PROJECT_ROOT / ".sing-box"
+XRAY_DIR = PROJECT_ROOT / ".xray"
 
 _REMOVABLE_CACHE_DIR_NAMES = frozenset(
     {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
 )
 _PROTECTED_ROOT_NAMES = frozenset(
-    {".git", ".venv", ".codegraph", ".sing-box", ".agents"}
+    {".git", ".venv", ".codegraph", ".sing-box", ".xray", ".agents"}
 )
 
 

@@ -2,6 +2,7 @@ __pycache__/
 *.py[cod]
 .venv/
 .sing-box/
+.xray/
 .cfnb_schedule.lock
 cron.log
 config.json

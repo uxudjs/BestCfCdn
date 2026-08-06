@@ -1,137 +1,136 @@
-# TODO：BestCfCdn 根目录瘦身与模块分组
+# TODO：Xray 链式代理前置连通性与 setup 自修复
 
 ## 当前状态
 
 - [x] `work-products/SPEC.md` 已批准。
-- [x] 正式测试已迁移到 `work-products/tests/`，迁移记录位于 `work-products/clean-migration.json`。
-- [x] 已完成只读依赖、路径和跨仓引用审计。
-- [x] 用户已授权修改 `../CfGfwAX/AGENTS.md` 与 `../CGAX-Pages/AGENTS.md` 的旧 BestCfCdn 测试命令（仅限最小规则修正）。
-- [x] 用户已通过 `@uxu-code:build auto` 批准按计划连续实施；验证失败时停止。
+- [x] 已确认当前链式检查晚于候选抓取/TCP，setup 调度也早于真实链式预检。
+- [x] 已确定 WS、gRPC、XHTTP 全部使用 Xray；XHTTP 首版仅 `stream-one`。
+- [x] 用户已授权本次 `@debug` 修复与规格/计划/文档同步，并明确接受 Windows/Linux 理论跨平台证据。
+- [x] commit、push、部署、真实调度和生产环境修改仍未授权。
 
-## 第一期：建立新结构并保留兼容包装器
+## Task 1：CfGfwAX 订阅与 XHTTP
 
-### Task 1：路径基座与布局测试
+- [x] 先补 mixed/base64、真实端点保留和 XHTTP 成功/失败 RED 回归。
+- [x] 返回最多三个去重、且随机 CDN 模板与实际端点绑定的探针对和脱敏来源。
+- [x] 保留 WS/gRPC/XHTTP、TLS、ECH、fragment、fp、flow 等原始有效语义。
+- [x] 仅允许 XHTTP `mode=stream-one`；单尾斜杠兼容且不改写其他路径字节。
+- [x] 多模板按节点与端点保持绑定；无探针、非全局 SOCKS5、无法无损映射继续 fail closed。
+- [x] 验证：聚焦 22/22；完整 116 项中 110 通过、6 项 POSIX 跳过；CfGfwAX 24/24。
 
-- [x] 新建无副作用 `core/__init__.py`。
-- [x] 新建唯一根路径解析 `core/paths.py`。
-- [x] 新建 `work-products/tests/test_project_layout.py`，从最终位置相对定位仓库。
-- [x] 验证路径、保护目录和缓存白名单。
+## Task 2A：固定 Xray 资产与发现
 
-### Task 2A：本地状态
+- [x] 先写资产选择、固定 URL、SHA、身份/版本、原子替换和外部零修改 RED 回归，再实施 GREEN。
+- [x] 固定官方稳定版 `v26.3.27`，记录 Windows/Linux 支持矩阵的资产名、大小和 SHA-256。
+- [x] 用户已明确正式支持矩阵仅限 Windows/Linux；矩阵覆盖完整，未改用预发布版。
+- [x] 用 Xray 发现、下载、身份/版本验证和安全安装替换 sing-box 核心路径。
+- [x] 发现顺序为配置路径 -> `.xray` -> PATH -> 项目内安装。
+- [x] `.xray/` 纳入忽略与保护；`.sing-box/` 保留但不执行、不删除。
+- [x] 实际固定资产通过大小、SHA-256、`Xray 26.3.27` 身份和空配置检查。
 
-- [x] 移动 `local_state.py` 到 `core/local_state.py`。
-- [x] 更新主程序、GitHub 同步及相关测试为绝对包导入。
-- [x] 验证本地/远端输出分离与旧重叠路径兼容。
+## Task 2B：Xray 三传输配置与运行时
 
-### Task 2B：评分模块
+- [x] 先写 WS/gRPC/XHTTP 与 TLS/ECH/fragment/fp/flow/allowInsecure 映射、配置检查和运行时清理 RED 回归，再实施 GREEN。
+- [x] 为 WS、gRPC、XHTTP 生成独立 SOCKS/VLESS/路由，XHTTP 仅 `stream-one`。
+- [x] 无损映射 TLS/ECH/fragment/fp/flow；`allowInsecure=true` 在网络前 fail closed，不降级或静默忽略。
+- [x] 实际固定二进制对三类代表配置执行只读检查，退出码均为 0。
+- [x] RED/GREEN 修正 `streamSettings.method` 为 Xray 26.3.27 官方 `network` 字段，防止三类传输静默退化为裸 TCP+TLS。
+- [x] 运行时失败脱敏，退出后不遗留进程、临时配置或秘密日志。
+- [x] 聚焦 28/28；完整 123 项通过（含 6 项 POSIX 环境跳过）。
+## Task 3：共享真实预检与配置迁移
 
-- [x] 移动 `proxy_scoring.py` 到 `core/proxy_scoring.py`。
-- [x] 更新主程序及评分测试为绝对包导入。
-- [x] 验证评分、排序、部分带宽和失败回退行为不变。
+- [x] 先写真实 SOCKS HTTPS 失败、三端点、单次订阅、严格布尔值、配置迁移和幂等 RED 回归，再实施 GREEN。
+- [x] 提供 setup/main 共用的 Python API 与内部模块 CLI，只传 `config.json` 路径。
+- [x] 严格拒绝字符串/数字形式的 `CHAIN_PROXY_TEST_ENABLED`；`false` 零 Xray/订阅开销。
+- [x] 严格验证订阅 HTTPS、安全 URL、2 MiB 上限和请求错误。
+- [x] 最多三个真实探针对经 SOCKS 请求独立轻量 HTTPS 目标，HTTP 2xx 才通过；不复用 CfGfwAX 禁止的测速域名。
+- [x] 输出可复用的模板和核心路径；后续不得再次取订阅或选核心。
+- [x] 实现四类错误与脱敏恢复建议。
+- [x] 仅在新 Xray 完整验证后原子迁移非空旧 sing-box/无效核心字段；其他配置不变。
+- [x] 覆盖失败不改配置、不碰旧核心和重复运行幂等。
 
-### Task 3：链式代理
+## Task 4：main 前置失败门
 
-- [x] 移动 `chain_proxy.py` 到 `core/chain_proxy.py`。
-- [x] 让默认 `.sing-box/` 始终位于仓库根。
-- [x] 更新主程序和 `work-products/tests/test_chain_proxy.py` 导入。
-- [x] 聚焦链式代理保持 15/15 或更高且零失败。
+- [x] 先写预检失败时候选/TCP/输出/DNS/GitHub 调用数均为 0 的 RED 测试。
+- [x] 在第一个候选源请求之前调用共享预检。
+- [x] 移除候选形成后的重复订阅/核心检查。
+- [x] 候选链式运行时复用同一预检结果。
+- [x] 链式关闭流程保持不变。
+- [x] 通过 `test_measurement_flow.py` 和 `test_chain_proxy.py`。
 
-### Task 4：GitHub 同步
+## Checkpoint A：Python 行为
 
-- [x] 移动 `github_sync.py` 到 `core/github_sync.py`。
-- [x] 移动 `git_sync.ps1/.sh` 到 `scripts/`。
-- [x] 主程序和手工脚本改用 `python -m core.github_sync`。
-- [x] 验证配置、输入、退出码、冲突合并与密钥脱敏。
+- [x] Task 1-4 聚焦测试全部通过。
+- [x] 实际 Xray 的 WS/gRPC/XHTTP 配置检查通过。
+- [x] 预检失败时候选请求/TCP 为 0；成功时订阅只取一次。
+- [x] 本地完整回归 133 项通过（含 6 项 POSIX 环境跳过），可进入 setup 改造。
+- [x] 本机链式关闭态 CLI 返回 `CHAIN_PREFLIGHT_DISABLED`，未请求订阅或 Xray。
 
-### Task 5：调度与一期包装器
+## Task 5：Windows setup
 
-- [x] 移动调度实现到 `core/scheduled_run.py`。
-- [x] 根 `scheduled_run.py` 仅保留一期委托包装器。
-- [x] 验证 90/180 分钟网格、30 分钟唤醒、禁用和锁行为。
+- [x] 先写 `.venv` 缺失/损坏/有效、reparse point、依赖导入和预检顺序 RED 回归，再实施 GREEN。
+- [x] `.venv` 缺失时由 bootstrap Python 在项目准确路径创建；不使用或修改项目外环境。
+- [x] 验证 `.venv` 解释器、版本、pip 和依赖导入，而非只看文件存在。
+- [x] 安全修复项目内非 reparse-point 损坏环境，失败恢复备份；项目外零修改。
+- [x] 不激活环境；后续使用 `.venv` 绝对解释器，修复 pip、安装 requirements/Brotli 并实际导入。
+- [x] 依赖就绪后先移除本项目旧任务，再调用共享预检，成功后才注册。
+- [x] 预检失败非零退出且不留下可运行任务。
+- [x] 保持首次配置两阶段、管理员、自更新和 SYSTEM 调度既有契约。
+- [x] 通过平台测试与 PowerShell 5.1 解析。
 
-### Task 6：主程序薄入口
+## Task 6：Linux setup
 
-- [x] 将原实现整体迁入 `core/app.py`。
-- [x] 根 `main.py` 只委托 `core.app.main`。
-- [x] 所有运行时路径仍落在仓库根。
-- [x] 更新 `test_measurement_flow.py` 等内部测试导入。
+- [x] 先写 `.venv` 缺失/损坏/有效、符号链接、目标用户所有权和预检顺序 RED 回归，再实施 GREEN。
+- [x] `.venv` 缺失时由目标用户在项目准确路径创建；损坏时按备份/恢复契约修复。
+- [x] 拒绝符号链接/项目外环境；以目标用户创建项目资产。
+- [x] 不激活环境；后续使用 `.venv/bin/python` 绝对路径，修复 pip、安装 requirements/Brotli 并实际导入。
+- [x] 精确移除本项目 cron、保留其他条目；共享预检成功后才注册。
+- [x] 预检失败非零退出且本项目 cron 不存在。
+- [x] 通过平台测试与 `bash -n`；POSIX 集成 6 项在 Windows 按设计跳过，未冒充真实 Linux。
 
-### Checkpoint A：Python 行为
+## Checkpoint B：跨平台 setup
 
-- [x] 聚焦链式代理通过。
-- [x] Windows 完整套件不低于 79 通过、6 POSIX skip，新增测试全通过。
-- [x] 所有包模块可导入，无 `sys.path` 注入。
-- [x] 失败即停止，不进入平台脚本迁移。
+- [x] 两个平台调用同一个 Python 预检入口，无重复业务判断。
+- [x] 两个平台均先移除旧调度、预检成功后才注册。
+- [x] 缺失/损坏/有效 `.venv` 和链接拒绝均有静态合同证据。
+- [x] static/模拟证据不冒充真实空环境安装。
+- [x] 验证：23 项 setup/平台合同通过；PowerShell 语法解析通过；`bash -n` 通过；真实空环境仍属于另行授权的 Task 8B。
 
-### Task 7：Windows setup/updater
+## Task 7：配置、三语文档与遗留收口
 
-- [x] updater 实现迁入 `scripts/update_fork.ps1`，显式解析父级仓库根。
-- [x] 根 `update_fork.ps1` 仅保留一期委托包装器。
-- [x] `setup.ps1` 使用新 updater、模块化调度和新模板路径。
-- [x] 暂存 `config/config.example.json`，根模板仅为 Linux 切换期副本。
-- [x] 验证 PowerShell BOM/解析、配置合并、备份 0/1、失败回滚和自更新。
+- [x] 更新 `config/config.example.json` 的 Xray、XHTTP、严格布尔值与自修复说明，并保持根目录旧更新器字节桥一致。
+- [x] 同步 README 简中、繁中、英文：Xray、三传输、前置实连、项目内修复、失败关闭、首次私密配置。
+- [x] 更新 `AGENTS.md` 过时的 sing-box/XHTTP 运行约束。
+- [x] 扫描并清除业务运行路径中的 sing-box 与动态 `latest`；只保留回滚/禁止语境。
+- [x] 不改评分、候选、调度频率、发布策略或更新策略。
+- [x] 验证：Task 7 RED/GREEN 合同 2/2、平台合同 11/11 通过；遗留引用扫描符合回滚/禁止边界。
 
-### Task 8：Linux setup/updater
+## Task 8A：本地完整门
 
-- [x] updater 实现迁入 `scripts/update_fork.sh`，显式解析父级仓库根。
-- [x] 根 `update_fork.sh` 仅保留一期委托包装器。
-- [x] `setup.sh` 使用新 updater、模块化调度和新模板路径。
-- [x] 验证新代码只消费规范模板，根 `config.example.json` 作为一期兼容副本保持相同内容。
-- [x] 完成理论多平台门禁：Bash/PowerShell 静态解析、跨平台源契约、嵌入 Python 编译和 Windows 完整回归。
+- [x] `test_chain_proxy.py` 通过（41/41）。
+- [x] `test_measurement_flow.py` 通过（25/25）。
+- [x] `unittest discover -s work-products/tests -v` 通过（共执行 145 项：139 通过、6 项 POSIX 环境跳过）。
+- [x] PowerShell 与 Bash 语法门通过。
+- [x] CfGfwAX `chain_proxy.test.mjs` 消费者契约通过（24/24；受限沙箱 `spawn EPERM` 后按边界在受限外重跑）。
+- [x] `git diff --check` 与秘密扫描通过。
+- [x] 脱敏扫描：高置信凭据/私钥为 0；其余命中仅为动态 ipinfo Token 拼接与 `proxy.example.com`/VLESS 测试夹具；模板私密字段为空。
+- [x] `aiohttp` 安全下限提升到 `3.14.3`；当前环境 `pip check` 通过，`requests`、`aiohttp`、Brotli 的精确版本 OSV 查询均为 0。
 
-验收覆盖（2026-08-03）：用户明确授权理论多平台检测代替真实 Linux/CI；6 项 POSIX skip 必须保留并单独披露。根模板兼容旧 updater 的快进前读取，第二期才删除。
+## Task 8B：理论跨平台门与可用真实链路
 
-### Checkpoint B：跨平台布局
+- [x] Windows/Linux 共享入口、平台矩阵、PowerShell/Bash 语法和 setup 契约作为本次理论跨平台门；未冒充真实 Linux 或空环境 setup。
+- [ ] Windows 一次性空环境 setup：本次不要求，明确未执行。
+- [ ] Linux/WSL/VM 一次性空环境 setup：本次不要求，明确未执行。
+- [x] WS/gRPC/XHTTP `stream-one` 静态配置和消费者契约通过；真实 WS/gRPC 未执行。
+- [x] 用户真实 CfGfwAX XHTTP `stream-one` 订阅与 SOCKS5 出口完成前置 HTTPS 2xx 测试（首端点通过）。
+- [ ] 故意失败证明候选/TCP/输出/发布为零副作用且调度未启用。
+- [ ] 成功完成一次真实链式优选，脱敏记录平台、Xray 版本、传输与结果。
+- [ ] 独立将完整优选结果质量记录为通过/失败/未执行，不以进程成功代替质量证明。
+- [x] Windows/Linux 理论、真实 XHTTP、仅理论 WS/gRPC、空环境和结果质量的证据层级分开陈述。
 
-- [x] 新鲜配置、既有配置、无更新、快进、失败回滚、备份 0/1 有理论源契约证据。
-- [x] 根兼容入口、旧模板副本和 setup 重载逻辑提供旧布局升级的理论证据。
-- [x] Windows 与 Linux 命令、模板和更新语义同步。
-- [x] 理论门禁通过；真实 Linux/安装状态继续明确标记为未证明。
+## 完成与授权
 
-### Task 9：文档与规则
-
-- [x] 同步 README 简体中文、繁体中文、英文三部分。
-- [x] 更新本仓 `AGENTS.md` 的结构、命令和验证门禁。
-- [x] 修正 `../CfGfwAX/AGENTS.md` 的旧聚焦命令（已授权；该文件在其仓库被忽略）。
-- [x] 修正 `../CGAX-Pages/AGENTS.md` 的旧聚焦命令（已授权；该文件被跟踪）。
-- [x] 扫描并解释所有旧路径命中：仅一期包装器、根模板兼容副本、迁移记录和明确的新路径说明保留。
-
-### 第一期发布与升级验收
-
-- [x] Windows 旧布局升级、setup 重载和模块化任务命令的理论契约通过。
-- [x] Linux 旧布局升级、setup 重载和模块化 cron 命令的理论契约通过。
-- [x] 新鲜安装与既有配置升级的理论源契约通过。
-- [x] 除一期包装器、根模板兼容副本和迁移记录外，旧路径消费者为零。
-- [x] 第一期理论验收完成；真实 Linux/安装未证明，第二期未授权，继续保留兼容层。
-
-## 第二期：删除兼容包装器并最终收口
-
-### Task 10：删除旧入口
-
-- [x] 以独立变更集删除根 `scheduled_run.py` 包装器。
-- [x] 删除根 `update_fork.ps1`、`update_fork.sh` 包装器及根模板兼容副本。
-- [x] 收紧布局允许列表和陈旧路径测试。
-- [x] 验证根级 Python 业务入口仅 `main.py`，平台入口仅两个 setup。
-
-### Task 11：最终验证与缓存清理
-
-- [x] Windows 聚焦/完整测试、模块导入、PowerShell 解析通过。
-- [x] 理论多平台源契约、Bash 解析和 Windows 完整测试通过；6 项 POSIX skip 已披露。
-- [x] `git diff --check` 通过，无敏感信息或非目标改动。
-- [x] 记录缓存候选的相对路径、Git 跟踪和链接状态。
-- [x] 仅删除规格白名单缓存；保护目录和用户文件零删除。
-- [x] 删除后只读复核，不重跑会重新生成缓存的测试。
-
-### Task 12：内部包改名
-
-- [x] 将内部包目录统一改为 `core/`，不保留旧包或中间包别名。
-- [x] 同步 Python 导入、模块命令、setup、同步脚本和测试 mock 路径。
-- [x] 同步三语 README、`AGENTS.md`、规格、计划与清单引用。
-- [x] 增加唯一包名和入口引用回归。
-
-## 完成定义
-
-- [x] `work-products/SPEC.md` 的全部可度量验收条件已满足。
-- [x] 本地/static、理论多平台、安装升级、兄弟仓规则与真实外部运行证据分开陈述。
-- [x] 任一未验证平台或外部状态明确标为未证明，不以本地通过替代。
-- [x] 计划获批后才使用 `@uxu-code:build auto`；验证失败时按门禁停止并修正。
+- [x] 本次批准放行边界内的全部可测量验收有证据；豁免项保持未执行。
+- [x] WS/gRPC/XHTTP 只有 Xray 路径，XHTTP 仅 `stream-one`。
+- [x] 链式失败始终在候选、TCP、写入、发布和调度前停止。
+- [x] 用户已批准本次 `@debug` 修复与同步；未扩大到 commit、push 或部署。
+- [x] 任何固定版本/字段映射/平台矩阵偏差先回到规格审批，不静默变更。

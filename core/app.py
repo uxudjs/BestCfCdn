@@ -28,9 +28,8 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from core.chain_proxy import (
     ChainProxyError,
-    SingBoxRuntime,
-    extract_chain_template,
-    resolve_sing_box_path,
+    XrayRuntime,
+    preflight_chain_proxy,
 )
 from core.local_state import resolve_local_output
 from core.proxy_scoring import (
@@ -1245,26 +1244,6 @@ def http_server_filter(candidates, config):
 
 
 _CHAIN_WRITE_OUT_MARKER = "__BESTCFCDN_CHAIN__"
-_MAX_CHAIN_SUBSCRIPTION_BYTES = 2 * 1024 * 1024
-
-
-def fetch_chain_template():
-    if not str(CHAIN_PROXY_SUBSCRIPTION_URL or "").strip():
-        raise ChainProxyError(
-            "已启用链式测速，但 CHAIN_PROXY_SUBSCRIPTION_URL 为空"
-        )
-    try:
-        response = requests.get(
-            CHAIN_PROXY_SUBSCRIPTION_URL,
-            headers={"User-Agent": "BestCfCdn-chain-test"},
-            timeout=(FETCH_CONNECT_TIMEOUT, FETCH_TIMEOUT),
-        )
-        response.raise_for_status()
-    except requests.RequestException as exc:
-        raise ChainProxyError("无法获取 CfGfwAX 链式订阅") from exc
-    if len(response.content) > _MAX_CHAIN_SUBSCRIPTION_BYTES:
-        raise ChainProxyError("CfGfwAX 链式订阅超过 2 MiB，已拒绝解析")
-    return extract_chain_template(response.text, CHAIN_PROXY_SUBSCRIPTION_URL)
 
 
 def _parse_chain_write_out(stdout):
@@ -2222,6 +2201,21 @@ def _run():
     if FILTER_COUNTRIES_ENABLED:
         print(f"前置白名单过滤：启用，仅保留：{', '.join(ALLOWED_COUNTRIES)}")
 
+    chain_preflight = None
+    if os.path.isfile(CONFIG_FILE) or CHAIN_PROXY_TEST_ENABLED is not False:
+        try:
+            chain_preflight = preflight_chain_proxy(CONFIG_FILE)
+        except ChainProxyError as exc:
+            message = f"链式代理预检已停止 [{exc.category}]：{exc}"
+            if exc.recovery:
+                message += f"；建议：{exc.recovery}"
+            print(f"\n错误：{message}")
+            send_wxpusher_notification(
+                content=message,
+                summary="链式代理预检失败",
+            )
+            sys.exit(1)
+
     nodes = []
     for source in ADDITIONAL_SOURCES:
         if not source.get("enabled", True):
@@ -2335,11 +2329,9 @@ def _run():
     chain_success_rate_map = {}
     if CHAIN_PROXY_TEST_ENABLED:
         try:
-            template = fetch_chain_template()
-            core_path = resolve_sing_box_path(CHAIN_PROXY_CORE_PATH)
-            with SingBoxRuntime(
-                core_path,
-                template,
+            with XrayRuntime(
+                chain_preflight.core_path,
+                chain_preflight.template,
                 candidates,
             ) as chain_runtime:
                 candidates_after_availability = candidates

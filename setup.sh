@@ -35,6 +35,19 @@ command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
+find_bootstrap_python() {
+    local candidate python_dir environment_root
+    while IFS= read -r candidate; do
+        [[ -n $candidate && -x $candidate ]] || continue
+        python_dir=$(dirname "$candidate")
+        environment_root=$(dirname "$python_dir")
+        [[ -f $environment_root/pyvenv.cfg ]] && continue
+        printf '%s\n' "$candidate"
+        return 0
+    done < <(type -aP python3 2>/dev/null | awk '!seen[$0]++')
+    return 1
+}
+
 run_as_target() {
     if [[ ${EUID} -eq 0 && $TARGET_USER != root ]]; then
         sudo -H -u "$TARGET_USER" -- "$@"
@@ -127,6 +140,55 @@ pip_install() {
         echo -e "${YELLOW}  ⚠️ 当前源失败，尝试下一个源。${NC}"
     done
     return 1
+}
+
+validate_project_venv() {
+    [[ -d $VENV_DIR && ! -L $VENV_DIR && -x $PYTHON_PATH ]] || return 1
+    run_as_target "$PYTHON_PATH" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 9) else 1)' >/dev/null 2>&1 || return 1
+    run_as_target "$PYTHON_PATH" -m pip --version >/dev/null 2>&1 || return 1
+    run_as_target "$PYTHON_PATH" -c "import requests, aiohttp, importlib.util as u; assert u.find_spec('brotlicffi') or u.find_spec('brotli')" >/dev/null 2>&1
+}
+
+restore_project_venv() {
+    if [[ -n ${VENV_BACKUP:-} ]] &&
+        [[ ! -d $VENV_BACKUP || -L $VENV_BACKUP || $VENV_BACKUP != "$SCRIPT_DIR"/.venv.repair-* ]]; then
+        echo -e "${RED}❌ .venv 修复备份路径不安全，拒绝恢复。${NC}" >&2
+        return 1
+    fi
+    if [[ -e $VENV_DIR ]]; then
+        if [[ ! -d $VENV_DIR || -L $VENV_DIR || $VENV_DIR != "$SCRIPT_DIR/.venv" ]]; then
+            echo -e "${RED}❌ 新 .venv 不是可安全移除的项目内真实目录，拒绝自动恢复。${NC}" >&2
+            return 1
+        fi
+        run_as_target rm -rf -- "$VENV_DIR"
+    fi
+    [[ -n ${VENV_BACKUP:-} ]] || return 0
+    run_as_target mv "$VENV_BACKUP" "$VENV_DIR"
+    VENV_BACKUP=""
+}
+
+discard_project_venv_backup() {
+    [[ -n ${VENV_BACKUP:-} ]] || return 0
+    if [[ ! -d $VENV_BACKUP || -L $VENV_BACKUP || $VENV_BACKUP != "$SCRIPT_DIR"/.venv.repair-* ]]; then
+        echo -e "${RED}❌ .venv 修复备份路径不安全，拒绝删除。${NC}" >&2
+        return 1
+    fi
+    run_as_target rm -rf -- "$VENV_BACKUP"
+    VENV_BACKUP=""
+}
+
+fail_project_venv_repair() {
+    local message=$1
+    local had_backup=false
+    [[ -n ${VENV_BACKUP:-} ]] && had_backup=true
+    if ! restore_project_venv; then
+        echo -e "${RED}❌ $message，且旧 .venv 自动恢复失败。${NC}" >&2
+    elif [[ $had_backup == true ]]; then
+        echo -e "${RED}❌ $message；旧 .venv 已恢复。${NC}" >&2
+    else
+        echo -e "${RED}❌ $message；失败的新 .venv 已移除。${NC}" >&2
+    fi
+    exit 1
 }
 
 append_gitignore_entry() {
@@ -319,17 +381,23 @@ if [[ ! -f $CONFIG_PATH ]]; then
     echo -e "${RED}❌ 更新后未能恢复已有的 config.json，已停止部署。${NC}" >&2
     exit 1
 fi
+remove_project_cron_entries || exit 1
 
 # ---------- 1. 系统依赖 ----------
 echo -e "${GREEN}[1/5] 检查系统依赖...${NC}"
-if ! command_exists python3; then
+if ! BOOTSTRAP_PYTHON=$(find_bootstrap_python); then
     install_packages python3
+    hash -r
+    if ! BOOTSTRAP_PYTHON=$(find_bootstrap_python); then
+        echo -e "${RED}❌ 安装后仍未找到虚拟环境之外的 Python 3。${NC}" >&2
+        exit 1
+    fi
 fi
-if ! python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 9) else 1)'; then
+if ! "$BOOTSTRAP_PYTHON" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 9) else 1)'; then
     echo -e "${RED}❌ 需要 Python 3.9 或更高版本。${NC}" >&2
     exit 1
 fi
-if ! SCHEDULE_ENABLED=$(python3 -c '
+if ! SCHEDULE_ENABLED=$("$BOOTSTRAP_PYTHON" -c '
 import json, os, sys
 path = sys.argv[1]
 config = json.load(open(path, encoding="utf-8-sig")) if os.path.exists(path) else {}
@@ -360,48 +428,65 @@ fi
 
 # ---------- 2. 项目虚拟环境 ----------
 echo -e "${GREEN}[2/5] 检查项目虚拟环境...${NC}"
-PYTHON_PATH="$SCRIPT_DIR/.venv/bin/python"
-if [[ ! -x $PYTHON_PATH ]]; then
-    echo -e "${YELLOW}创建项目虚拟环境 .venv...${NC}"
-    if ! run_as_target python3 -m venv "$SCRIPT_DIR/.venv"; then
+VENV_DIR="$SCRIPT_DIR/.venv"
+PYTHON_PATH="$VENV_DIR/bin/python"
+VENV_BACKUP=""
+VENV_NEEDS_REPAIR=false
+if [[ -L $VENV_DIR ]]; then
+    echo -e "${RED}❌ .venv 是符号链接，拒绝修改。${NC}" >&2
+    exit 1
+fi
+if [[ -e $VENV_DIR && ! -d $VENV_DIR ]]; then
+    echo -e "${RED}❌ .venv 已存在但不是真实目录，拒绝修改。${NC}" >&2
+    exit 1
+fi
+if ! validate_project_venv; then
+    VENV_NEEDS_REPAIR=true
+    if [[ -d $VENV_DIR ]]; then
+        VENV_BACKUP="$SCRIPT_DIR/.venv.repair-$$"
+        [[ ! -e $VENV_BACKUP ]] || {
+            echo -e "${RED}❌ .venv 修复备份路径已存在，拒绝覆盖。${NC}" >&2
+            exit 1
+        }
+        run_as_target mv "$VENV_DIR" "$VENV_BACKUP"
+    fi
+    echo -e "${YELLOW}创建或修复项目虚拟环境 .venv...${NC}"
+    if ! run_as_target "$BOOTSTRAP_PYTHON" -m venv "$SCRIPT_DIR/.venv"; then
         echo -e "${YELLOW}首次创建失败，尝试安装 venv 支持...${NC}"
         case "$PKG_MANAGER" in
             apt) install_packages python3-venv ;;
             dnf|yum|pacman) install_packages python3 ;;
         esac
-        run_as_target python3 -m venv "$SCRIPT_DIR/.venv"
+        run_as_target "$BOOTSTRAP_PYTHON" -m venv "$SCRIPT_DIR/.venv" || fail_project_venv_repair ".venv 创建失败"
     fi
 fi
 if [[ ! -x $PYTHON_PATH ]]; then
-    echo -e "${RED}❌ .venv 创建失败。${NC}" >&2
-    exit 1
+    fail_project_venv_repair ".venv 创建后缺少项目解释器"
 fi
 echo -e "✅ 项目 Python: $PYTHON_PATH"
 
 # ---------- 3. Python 依赖 ----------
 echo -e "${GREEN}[3/5] 安装并验证 Python 依赖...${NC}"
-if ! run_as_target "$PYTHON_PATH" -m pip --version >/dev/null 2>&1; then
-    run_as_target "$PYTHON_PATH" -m ensurepip --upgrade
-fi
-if ! pip_install "安装核心依赖" -r "$SCRIPT_DIR/requirements.txt"; then
-    echo -e "${RED}❌ requests 与 aiohttp 安装失败，请检查网络或代理。${NC}" >&2
-    exit 1
-fi
-
-if ! run_as_target "$PYTHON_PATH" -c \
-    "import importlib.util as u; raise SystemExit(0 if u.find_spec('brotlicffi') or u.find_spec('brotli') else 1)"; then
-    if ! pip_install "安装 brotlicffi" brotlicffi; then
-        pip_install "安装 brotli 备用实现" brotli || {
-            echo -e "${RED}❌ Brotli 解压依赖安装失败。${NC}" >&2
-            exit 1
-        }
+if [[ $VENV_NEEDS_REPAIR == true ]]; then
+    if ! run_as_target "$PYTHON_PATH" -m pip --version >/dev/null 2>&1; then
+        run_as_target "$PYTHON_PATH" -m ensurepip --upgrade || fail_project_venv_repair "pip 修复失败"
     fi
+    if ! pip_install "安装核心依赖" -r "$SCRIPT_DIR/requirements.txt"; then
+        fail_project_venv_repair "requests 与 aiohttp 安装失败，请检查网络或代理"
+    fi
+
+    if ! run_as_target "$PYTHON_PATH" -c "import importlib.util as u; raise SystemExit(0 if u.find_spec('brotlicffi') or u.find_spec('brotli') else 1)"; then
+        if ! pip_install "安装 brotlicffi" brotlicffi; then
+            pip_install "安装 brotli 备用实现" brotli || fail_project_venv_repair "Brotli 解压依赖安装失败"
+        fi
+    fi
+
+    if ! validate_project_venv; then
+        fail_project_venv_repair "Python 依赖已安装但无法导入"
+    fi
+    discard_project_venv_backup || exit 1
 fi
-
-run_as_target "$PYTHON_PATH" -c \
-    "import requests, aiohttp, importlib.util as u; assert u.find_spec('brotlicffi') or u.find_spec('brotli'); print('依赖导入验证通过')"
 echo -e "${GREEN}✅ Python 依赖安装并验证完成${NC}"
-
 # ---------- 4. 文件检查与 .gitignore ----------
 echo -e "${GREEN}[4/5] 检查运行文件与 .gitignore...${NC}"
 if [[ ! -f core/scheduled_run.py || ! -f main.py || ! -f core/proxy_scoring.py || ! -f requirements.txt ]]; then
@@ -414,7 +499,7 @@ for entry in ".venv/" "__pycache__/" "*.py[cod]" ".cfnb_schedule.lock" "cron.log
 done
 echo -e "✅ 已保留原有 .gitignore，并补齐运行时条目"
 
-# ---------- 5. 按配置创建或清理 cron 计划任务 ----------
+# ---------- 5. 链式预检与 cron 门 ----------
 escaped_dir=${SCRIPT_DIR//\"/\\\"}
 CRON_COMMENT="# Cloudflare IP 优选工具（中国CF CDN忙时90分钟/非忙时180分钟）"
 CRON_CMD="*/30 * * * * cd \"$escaped_dir\" && \"$PYTHON_PATH\" -m $PYTHON_MODULE >> \"$escaped_dir/cron.log\" 2>&1"
@@ -424,23 +509,27 @@ CLEANED_CRONTAB=""
 if command_exists crontab; then
     EXISTING_CRONTAB=$(read_target_crontab) || exit 1
     CLEANED_CRONTAB=$(printf '%s\n' "$EXISTING_CRONTAB" | filter_project_crontab)
+    if [[ $CLEANED_CRONTAB != "$EXISTING_CRONTAB" ]]; then
+        printf '%s\n' "$CLEANED_CRONTAB" | write_target_crontab
+    fi
+fi
+
+echo -e "${GREEN}[5/5] 运行共享链式预检...${NC}"
+if ! run_as_target "$PYTHON_PATH" -m core.chain_proxy preflight --config "$CONFIG_PATH"; then
+    echo -e "${RED}❌ 链式预检失败；本项目 cron 保持移除状态。${NC}" >&2
+    exit 1
 fi
 
 if [[ $SCHEDULE_ENABLED == true ]]; then
     echo -e "${GREEN}[5/5] 配置定时任务（每30分钟检查峰谷策略）...${NC}"
-    (printf '%s\n' "$CLEANED_CRONTAB"; echo "$CRON_COMMENT"; echo "$CRON_CMD") \
-        | write_target_crontab
+    (printf '%s\n' "$CLEANED_CRONTAB"; echo "$CRON_COMMENT"; echo "$CRON_CMD") | write_target_crontab
     echo -e "${GREEN}✅ 已为 $TARGET_USER 更新 cron 任务${NC}"
     echo -e "   Python: $PYTHON_PATH"
     echo -e "   日志: $SCRIPT_DIR/cron.log"
 else
-    echo -e "${GREEN}[5/5] 自动定时优选已关闭，正在清理本项目旧 cron 任务...${NC}"
-    if command_exists crontab && [[ $CLEANED_CRONTAB != "$EXISTING_CRONTAB" ]]; then
-        printf '%s\n' "$CLEANED_CRONTAB" | write_target_crontab
-    fi
+    echo -e "${GREEN}[5/5] 自动定时优选已关闭。${NC}"
     echo -e "${GREEN}✅ 已确认本项目 cron 任务不存在；需要时请手动运行 main.py${NC}"
 fi
-
 # 尝试启动 cron 服务；WSL、容器或非 systemd 环境失败时只提示。
 if [[ $SCHEDULE_ENABLED == true ]] && command_exists systemctl \
     && [[ ${EUID} -eq 0 || ${#PRIVILEGE[@]} -gt 0 ]]; then

@@ -72,20 +72,29 @@ function Invoke-NativeCommand {
     return ($exitCode -eq 0)
 }
 
+function Test-IsVirtualEnvironmentPython {
+    param([Parameter(Mandatory = $true)][string]$PythonPath)
+
+    try {
+        $pythonDir = Split-Path -Parent ([IO.Path]::GetFullPath($PythonPath))
+        $environmentRoot = Split-Path -Parent $pythonDir
+    } catch {
+        return $false
+    }
+    return (Test-Path -LiteralPath (Join-Path $environmentRoot "pyvenv.cfg") -PathType Leaf)
+}
+
 function Get-BootstrapPython {
+    param([switch]$ExcludeProjectVenv)
+
     $projectVenvPython = Join-Path $script:ScriptDir ".venv\Scripts\python.exe"
-    if (Test-Path -LiteralPath $projectVenvPython -PathType Leaf) {
-        return @{ Path = $projectVenvPython; Prefix = @() }
+    if (-not $ExcludeProjectVenv -and
+            (Test-ProjectVenvReady -VenvPath (Join-Path $script:ScriptDir ".venv"))) {
+        return @{ Path = [IO.Path]::GetFullPath($projectVenvPython); Prefix = @() }
     }
 
-    $activeVenvPython = if ($env:VIRTUAL_ENV) {
-        Join-Path $env:VIRTUAL_ENV "Scripts\python.exe"
-    } else { $null }
-    if ($activeVenvPython -and (Test-Path $activeVenvPython)) {
-        return @{ Path = $activeVenvPython; Prefix = @() }
-    }
-
-    $python = Get-Command python.exe -CommandType Application -ErrorAction SilentlyContinue |
+    $python = Get-Command python.exe -CommandType Application -All -ErrorAction SilentlyContinue |
+        Where-Object { -not (Test-IsVirtualEnvironmentPython -PythonPath $_.Source) } |
         Select-Object -First 1
     if ($python) {
         return @{ Path = $python.Source; Prefix = @() }
@@ -96,6 +105,77 @@ function Get-BootstrapPython {
         return @{ Path = $pyLauncher.Source; Prefix = @("-3") }
     }
     return $null
+}
+
+function Test-ProjectVenvReady {
+    param(
+        [Parameter(Mandatory = $true)][string]$VenvPath,
+        [switch]$RequireDependencies
+    )
+
+    if (-not (Test-Path -LiteralPath $VenvPath -PathType Container)) { return $false }
+    $venvItem = Get-Item -LiteralPath $VenvPath -Force
+    if (($venvItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { return $false }
+    $venvPython = Join-Path $VenvPath "Scripts\python.exe"
+    if (-not (Test-Path -LiteralPath $venvPython -PathType Leaf)) { return $false }
+
+    $versionOk = Invoke-NativeCommand -FilePath $venvPython -Arguments @(
+        "-c", "import sys; raise SystemExit(0 if sys.version_info >= (3, 9) else 1)"
+    ) -AllowFailure -Quiet
+    if (-not $versionOk) { return $false }
+    $pipOk = Invoke-NativeCommand -FilePath $venvPython -Arguments @(
+        "-m", "pip", "--version"
+    ) -AllowFailure -Quiet
+    if (-not $pipOk) { return $false }
+    if (-not $RequireDependencies) { return $true }
+    return (Invoke-NativeCommand -FilePath $venvPython -Arguments @(
+        "-c", "import requests, aiohttp, importlib.util as u; assert u.find_spec('brotlicffi') or u.find_spec('brotli')"
+    ) -AllowFailure -Quiet)
+}
+
+function Restore-ProjectVenv {
+    param(
+        [Parameter(Mandatory = $true)][string]$VenvPath,
+        [string]$venvBackupPath
+    )
+
+    $expectedVenvPath = [IO.Path]::GetFullPath((Join-Path $script:ScriptDir ".venv"))
+    if ([IO.Path]::GetFullPath($VenvPath) -ne $expectedVenvPath) {
+        throw "拒绝恢复项目目录之外的虚拟环境。"
+    }
+    if ($venvBackupPath) {
+        $backupItem = Get-Item -LiteralPath $venvBackupPath -Force
+        if (-not $backupItem.PSIsContainer -or
+                ($backupItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+                $backupItem.Parent.FullName -ne [IO.Path]::GetFullPath($script:ScriptDir) -or
+                $backupItem.Name -notlike ".venv.repair-*") {
+            throw ".venv 修复备份路径不安全，拒绝恢复。"
+        }
+    }
+    if (Test-Path -LiteralPath $VenvPath) {
+        $venvItem = Get-Item -LiteralPath $VenvPath -Force
+        if (-not $venvItem.PSIsContainer -or
+                ($venvItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "新 .venv 不是可安全移除的项目内真实目录，拒绝自动恢复。"
+        }
+        Remove-Item -LiteralPath $VenvPath -Recurse -Force
+    }
+    if ($venvBackupPath) {
+        Move-Item -LiteralPath $venvBackupPath -Destination $VenvPath
+    }
+}
+
+function Remove-ProjectVenvBackup {
+    param([string]$venvBackupPath)
+    if (-not $venvBackupPath) { return }
+    $backupItem = Get-Item -LiteralPath $venvBackupPath -Force
+    if (-not $backupItem.PSIsContainer -or
+            ($backupItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+            $backupItem.Parent.FullName -ne [IO.Path]::GetFullPath($script:ScriptDir) -or
+            $backupItem.Name -notlike ".venv.repair-*") {
+        throw ".venv 修复备份路径不安全，拒绝删除。"
+    }
+    Remove-Item -LiteralPath $venvBackupPath -Recurse -Force
 }
 
 function Get-NextAlignedTime {
@@ -381,34 +461,52 @@ if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) {
 
 # ---------- 1. 检测 Python 并固定使用项目虚拟环境 ----------
 Write-Host "[1/5] 检查 Python 与项目虚拟环境..." -ForegroundColor Green
-$bootstrap = Get-BootstrapPython
-if (-not $bootstrap) {
-    Write-Host "未检测到 Python，正在通过 winget 安装 Python 3..." -ForegroundColor Yellow
-    $winget = Get-Command winget.exe -CommandType Application -ErrorAction SilentlyContinue |
-        Select-Object -First 1
-    if (-not $winget) {
-        throw "未找到 winget，请先从 https://www.python.org/downloads/ 安装 Python 3。"
+$venvPath = Join-Path $ScriptDir ".venv"
+$venvBackupPath = $null
+if (Test-Path -LiteralPath $venvPath) {
+    $venvItem = Get-Item -LiteralPath $venvPath -Force
+    if (-not $venvItem.PSIsContainer -or
+            ($venvItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw ".venv 不是项目内真实目录（可能是重解析点），拒绝修改。"
     }
-    $null = Invoke-NativeCommand -FilePath $winget.Source -Arguments @(
-        "install", "Python.Python.3", "--accept-package-agreements", "--accept-source-agreements"
-    )
-    Refresh-EnvPath
-    $bootstrap = Get-BootstrapPython
-    if (-not $bootstrap) { throw "Python 安装后仍无法检测，请重新打开 PowerShell 再运行。" }
 }
+$dependenciesReady = Test-ProjectVenvReady -VenvPath $venvPath -RequireDependencies
+if (-not $dependenciesReady) {
+    $bootstrap = Get-BootstrapPython -ExcludeProjectVenv
+    if (-not $bootstrap) {
+        Write-Host "未检测到系统 Python，正在通过 winget 安装 Python 3..." -ForegroundColor Yellow
+        $winget = Get-Command winget.exe -CommandType Application -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+        if (-not $winget) {
+            throw "未找到 winget，请先从 https://www.python.org/downloads/ 安装 Python 3。"
+        }
+        $null = Invoke-NativeCommand -FilePath $winget.Source -Arguments @(
+            "install", "Python.Python.3", "--accept-package-agreements", "--accept-source-agreements"
+        )
+        Refresh-EnvPath
+        $bootstrap = Get-BootstrapPython -ExcludeProjectVenv
+        if (-not $bootstrap) { throw "Python 安装后仍无法检测，请重新打开 PowerShell 再运行。" }
+    }
 
-$projectVenvPython = Join-Path $ScriptDir ".venv\Scripts\python.exe"
-if (-not (Test-Path $projectVenvPython)) {
-    Write-Host "  创建项目虚拟环境 .venv..." -ForegroundColor Yellow
-    $venvArgs = @($bootstrap.Prefix) + @("-m", "venv", (Join-Path $ScriptDir ".venv"))
-    $null = Invoke-NativeCommand -FilePath $bootstrap.Path -Arguments $venvArgs
+    if (Test-Path -LiteralPath $venvPath -PathType Container) {
+        $venvBackupPath = Join-Path $ScriptDir (".venv.repair-{0}" -f [guid]::NewGuid().ToString("N"))
+        if (Test-Path -LiteralPath $venvBackupPath) { throw ".venv 修复备份路径已存在，拒绝覆盖。" }
+        Move-Item -LiteralPath $venvPath -Destination $venvBackupPath
+    }
+    Write-Host "  创建或修复项目虚拟环境 .venv..." -ForegroundColor Yellow
+    try {
+        $venvArgs = @($bootstrap.Prefix) + @("-m", "venv", $venvPath)
+        $null = Invoke-NativeCommand -FilePath $bootstrap.Path -Arguments $venvArgs
+        if (-not (Test-ProjectVenvReady -VenvPath $venvPath)) {
+            throw "项目虚拟环境创建后未通过 Python/pip 验证。"
+        }
+    } catch {
+        $creationFailure = $_
+        Restore-ProjectVenv -VenvPath $venvPath -venvBackupPath $venvBackupPath
+        throw "项目虚拟环境创建失败；旧 .venv 已按可用情况恢复：$creationFailure"
+    }
 }
-if (-not (Test-Path $projectVenvPython)) { throw "项目虚拟环境创建失败。" }
-$PythonExePath = $projectVenvPython
-$versionOk = Invoke-NativeCommand -FilePath $PythonExePath -Arguments @(
-    "-c", "import sys; raise SystemExit(0 if sys.version_info >= (3, 9) else 1)"
-) -AllowFailure -Quiet
-if (-not $versionOk) { throw "需要 Python 3.9 或更高版本。" }
+$PythonExePath = Join-Path $venvPath "Scripts\python.exe"
 Write-Host "✅ 项目 Python: $PythonExePath" -ForegroundColor Gray
 
 # ---------- 2. 检测 Git ----------
@@ -457,30 +555,36 @@ foreach ($candidate in @($TunaPyPI, $OfficialPyPI)) {
     if ($PipIndexUrls -notcontains $candidate) { $PipIndexUrls += $candidate }
 }
 
-$pipOk = Invoke-NativeCommand -FilePath $PythonExePath -Arguments @("-m", "pip", "--version") -AllowFailure -Quiet
-if (-not $pipOk) {
-    $null = Invoke-NativeCommand -FilePath $PythonExePath -Arguments @("-m", "ensurepip", "--upgrade")
-}
+if (-not $dependenciesReady) {
+    try {
+        $pipOk = Invoke-NativeCommand -FilePath $PythonExePath -Arguments @("-m", "pip", "--version") -AllowFailure -Quiet
+        if (-not $pipOk) {
+            $null = Invoke-NativeCommand -FilePath $PythonExePath -Arguments @("-m", "ensurepip", "--upgrade")
+        }
+        if (-not (Install-PythonPackages -InstallArguments @("-r", (Join-Path $ScriptDir "requirements.txt")) -Description "安装核心依赖")) {
+            throw "requests 与 aiohttp 安装失败，请检查网络或代理设置。"
+        }
 
-if (-not (Install-PythonPackages -InstallArguments @("-r", (Join-Path $ScriptDir "requirements.txt")) -Description "安装核心依赖")) {
-    throw "requests 与 aiohttp 安装失败，请检查网络或代理设置。"
-}
-
-$brotliPresent = Invoke-NativeCommand -FilePath $PythonExePath -Arguments @(
-    "-c", "import importlib.util as u; raise SystemExit(0 if u.find_spec('brotlicffi') or u.find_spec('brotli') else 1)"
-) -AllowFailure -Quiet
-if (-not $brotliPresent) {
-    $brotliPresent = Install-PythonPackages -InstallArguments @("brotlicffi") -Description "安装 brotlicffi"
-    if (-not $brotliPresent) {
-        $brotliPresent = Install-PythonPackages -InstallArguments @("brotli") -Description "安装 brotli 备用实现"
+        $brotliPresent = Invoke-NativeCommand -FilePath $PythonExePath -Arguments @(
+            "-c", "import importlib.util as u; raise SystemExit(0 if u.find_spec('brotlicffi') or u.find_spec('brotli') else 1)"
+        ) -AllowFailure -Quiet
+        if (-not $brotliPresent) {
+            $brotliPresent = Install-PythonPackages -InstallArguments @("brotlicffi") -Description "安装 brotlicffi"
+            if (-not $brotliPresent) {
+                $brotliPresent = Install-PythonPackages -InstallArguments @("brotli") -Description "安装 brotli 备用实现"
+            }
+        }
+        if (-not $brotliPresent) { throw "Brotli 解压依赖安装失败。" }
+        if (-not (Test-ProjectVenvReady -VenvPath $venvPath -RequireDependencies)) {
+            throw "Python 依赖已安装但无法导入。"
+        }
+    } catch {
+        $dependencyFailure = $_
+        Restore-ProjectVenv -VenvPath $venvPath -venvBackupPath $venvBackupPath
+        throw "Python 依赖安装失败；旧 .venv 已按可用情况恢复：$dependencyFailure"
     }
+    Remove-ProjectVenvBackup -venvBackupPath $venvBackupPath
 }
-if (-not $brotliPresent) { throw "Brotli 解压依赖安装失败。" }
-
-$importsOk = Invoke-NativeCommand -FilePath $PythonExePath -Arguments @(
-    "-c", "import requests, aiohttp, importlib.util as u; assert u.find_spec('brotlicffi') or u.find_spec('brotli'); print('dependency import check passed')"
-) -AllowFailure
-if (-not $importsOk) { throw "Python 依赖已安装但无法导入。" }
 Write-Host "✅ Python 依赖安装并验证完成" -ForegroundColor Green
 
 # ---------- 5. 保留已有 .gitignore，只补充运行时条目 ----------
@@ -494,6 +598,19 @@ Add-GitIgnoreEntries -Path (Get-RuntimeIgnorePath) -Entries @(
     "config.json", "ip.local.txt", "valid_tokens.txt", "ipinfo_cache.txt", "cfnb.log"
 )
 Write-Host "✅ 文件检查完成（未覆盖已有 .gitignore）" -ForegroundColor Gray
+
+# ---------- 链式预检与调度门 ----------
+try {
+    $null = Remove-ProjectScheduledTask -Name $TaskName
+} catch {
+    throw "无法确认旧计划任务已停止，链式预检尚未运行：$_"
+}
+$preflightOk = Invoke-NativeCommand -FilePath $PythonExePath -Arguments @(
+    "-X", "utf8", "-m", "core.chain_proxy", "preflight", "--config", $configPath
+) -AllowFailure
+if (-not $preflightOk) {
+    throw "链式预检失败；本项目计划任务保持移除状态。"
+}
 
 # ---------- 按配置创建或清理计划任务 ----------
 $scheduleEnabled = $true

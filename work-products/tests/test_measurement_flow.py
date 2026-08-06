@@ -1,5 +1,6 @@
 import io
 import subprocess
+import tempfile
 import unittest
 from contextlib import redirect_stdout
 from unittest import mock
@@ -456,6 +457,107 @@ class MeasurementFlowTests(unittest.TestCase):
         write_output.assert_not_called()
         update_dns.assert_not_called()
         sync_github.assert_not_called()
+
+    def test_chain_preflight_failure_stops_before_candidates_tcp_and_outputs(self):
+        error = main.ChainProxyError(
+            "真实代理连接失败",
+            category="CONNECTIVITY_ERROR",
+        )
+        settings = {
+            "CHAIN_PROXY_TEST_ENABLED": True,
+            "ADDITIONAL_SOURCES": [{"enabled": True, "url": "test-source"}],
+        }
+        with mock.patch.multiple(main, **settings), mock.patch(
+            "core.app.preflight_chain_proxy", side_effect=error
+        ) as preflight, mock.patch(
+            "core.app.fetch_additional_source"
+        ) as fetch, mock.patch(
+            "core.app.calibrate_regions"
+        ) as calibrate, mock.patch(
+            "core.app.test_node"
+        ) as tcp, mock.patch(
+            "core.app.write_ip_txt"
+        ) as write_output, mock.patch(
+            "core.app.batch_update_cloudflare_dns"
+        ) as update_dns, mock.patch(
+            "core.app.sync_to_github"
+        ) as sync_github, mock.patch(
+            "core.app.send_wxpusher_notification"
+        ):
+            with self.assertRaises(SystemExit) as caught:
+                main._run()
+
+        self.assertEqual(1, caught.exception.code)
+        preflight.assert_called_once_with(main.CONFIG_FILE)
+        fetch.assert_not_called()
+        calibrate.assert_not_called()
+        tcp.assert_not_called()
+        write_output.assert_not_called()
+        update_dns.assert_not_called()
+        sync_github.assert_not_called()
+
+    def test_direct_mode_with_missing_config_skips_disk_preflight(self):
+        with tempfile.TemporaryDirectory() as directory:
+            missing_config = main.os.path.join(directory, "config.json")
+            settings = {
+                "CONFIG_FILE": missing_config,
+                "CHAIN_PROXY_TEST_ENABLED": False,
+                "ADDITIONAL_SOURCES": [],
+            }
+            with mock.patch.multiple(main, **settings), mock.patch(
+                "core.app.preflight_chain_proxy",
+                side_effect=AssertionError("disabled direct mode touched preflight"),
+            ) as preflight:
+                with self.assertRaises(SystemExit) as caught:
+                    main._run()
+
+        self.assertEqual(1, caught.exception.code)
+        preflight.assert_not_called()
+
+    def test_chain_measurement_reuses_preflight_template_and_core(self):
+        node = "104.16.0.1:443#US"
+        template = object()
+        preflight_result = mock.Mock(template=template, core_path="xray.exe")
+        settings = {
+            "CHAIN_PROXY_TEST_ENABLED": True,
+            "ADDITIONAL_SOURCES": [{"enabled": True, "url": "test-source"}],
+            "PRE_FILTER_PORT_ENABLED": False,
+            "PRE_FILTER_BLOCKED_ENABLED": False,
+            "FILTER_COUNTRIES_ENABLED": False,
+            "USE_GLOBAL_MODE": True,
+            "BANDWIDTH_CANDIDATES": 1,
+            "MAX_WORKERS": 1,
+        }
+        stop = main.ChainProxyError("stop after reuse proof")
+        with mock.patch.multiple(main, **settings), mock.patch(
+            "core.app.preflight_chain_proxy", return_value=preflight_result
+        ) as preflight, mock.patch(
+            "core.app.fetch_additional_source", return_value=[node]
+        ), mock.patch(
+            "core.app.calibrate_regions"
+        ), mock.patch(
+            "core.app.test_node", return_value=(node, 0.01, "US", 1.0)
+        ), mock.patch(
+            "core.app.XrayRuntime", side_effect=stop
+        ) as runtime, mock.patch(
+            "core.app.fetch_chain_template", create=True
+        ) as legacy_fetch, mock.patch(
+            "core.app.resolve_xray_path", create=True
+        ) as legacy_resolve, mock.patch(
+            "core.app.send_wxpusher_notification"
+        ):
+            with self.assertRaises(SystemExit) as caught:
+                main._run()
+
+        self.assertEqual(1, caught.exception.code)
+        preflight.assert_called_once_with(main.CONFIG_FILE)
+        runtime.assert_called_once_with(
+            "xray.exe",
+            template,
+            [node],
+        )
+        legacy_fetch.assert_not_called()
+        legacy_resolve.assert_not_called()
 
     def test_dns_per_country_limit_is_applied_after_ranking(self):
         list_response = mock.MagicMock()

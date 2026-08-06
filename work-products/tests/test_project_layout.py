@@ -41,6 +41,7 @@ class ProjectLayoutTests(unittest.TestCase):
             "CRON_LOG_FILE": PROJECT_ROOT / "cron.log",
             "SCHEDULE_LOCK_FILE": PROJECT_ROOT / ".cfnb_schedule.lock",
             "SING_BOX_DIR": PROJECT_ROOT / ".sing-box",
+            "XRAY_DIR": PROJECT_ROOT / ".xray",
         }
 
         for name, expected_path in expected.items():
@@ -122,6 +123,7 @@ class ProjectLayoutTests(unittest.TestCase):
             PROJECT_ROOT / ".venv" / "module.pyc",
             PROJECT_ROOT / ".codegraph" / "module.pyc",
             PROJECT_ROOT / ".sing-box" / "module.pyc",
+            PROJECT_ROOT / ".xray" / "module.pyc",
             PROJECT_ROOT / ".agents" / "module.pyc",
             PROJECT_ROOT / "config.json",
             PROJECT_ROOT / "ip.txt",
@@ -140,6 +142,15 @@ class ProjectLayoutTests(unittest.TestCase):
         for candidate in protected:
             with self.subTest(protected=candidate):
                 self.assertFalse(is_removable_cache_candidate(candidate))
+
+    def test_runtime_directories_are_ignored_and_protected(self):
+        gitignore = (PROJECT_ROOT / ".gitignore").read_text(encoding="utf-8")
+        self.assertIn(".xray/", gitignore)
+        self.assertIn(".sing-box/", gitignore)
+        from core import paths
+
+        self.assertIn(".xray", paths._PROTECTED_ROOT_NAMES)
+        self.assertIn(".sing-box", paths._PROTECTED_ROOT_NAMES)
 
 
 if __name__ == "__main__":

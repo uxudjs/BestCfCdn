@@ -1,5 +1,7 @@
 # BestCfCdn
 
+跨平台 Cloudflare CDN / EdgeTunnel IP 自动优选：分层检测、体验评分、多终端同步，并可选发布到 GitHub 与 Cloudflare DNS。
+
 ### 🌐 选择语言 | 選擇語言 | Choose Language
 
 - [🇨🇳 简体中文](#-简体中文)
@@ -10,78 +12,81 @@
 
 ## 🇨🇳 简体中文
 
-面向 Cloudflare CDN 与 EdgeTunnel 代理场景的跨平台 IP 自动优选工具。
+> **最快上手：运行 setup 生成 `config.json` → 修改配置 → 再次运行 setup。**
 
-### 主要功能
+### 3 步开始
 
-- ✅ **多源聚合** - 自动解析文本、JSON、中文地区名和 emoji 国旗等节点格式
-- ⚡ **分层检测** - 依次检查 TCP 成功率、代理可用性、HTTP 延迟、抖动和真实带宽
-- 🔗 **可选链式测速** - 从 TCP 前 150 个候选开始测试“客户端 → CF 节点 → CfGfwAX → SOCKS5 → 目标服务器”真实链路
-- ⚖️ **体验评分** - 综合响应速度、稳定性和带宽，避免只追求单项最高值
-- 🏆 **最优输出** - 全局模式默认保留综合体验最好的 3 个节点
-- 📤 **多终端同步** - 每台终端只替换远端 `ip.txt` 中属于自己的记录
-- ⏱️ **峰谷调度** - 按北京时间固定时间点运行：00:00–18:00 每 3 小时，18:00–24:00 每 1.5 小时
-- 🖥️ **一键部署** - setup 自动更新代码、创建 `.venv`、安装依赖并管理定时任务
-- ☁️ **可选发布** - 支持 GitHub、Cloudflare DNS 和 WxPusher 异常通知
+1. 克隆项目。需要汇总结果到 GitHub 时，先 Fork 本仓库作为结果仓库；推荐克隆上游，以便 setup 自动获取更新。
 
-### 安装使用
+   ```bash
+   git clone https://github.com/uxudjs/BestCfCdn.git
+   cd BestCfCdn
+   ```
 
-#### 1. 获取项目
+   克隆自己的 Fork 前，请先在 GitHub 使用 `Sync fork`。ZIP 可以运行，但不支持 setup 自动更新。
 
-需要 GitHub 汇总结果时，先 Fork 本仓库作为结果仓库。推荐克隆上游项目，让 setup 可以直接获取更新。
+2. 首次运行 setup。
 
-```bash
-git clone https://github.com/uxudjs/BestCfCdn.git
-cd BestCfCdn
-```
+   **Windows PowerShell**
 
-如果克隆自己的 Fork，请先在 GitHub 使用 `Sync fork` 同步上游。ZIP 版本可以运行，但不支持 setup 自动更新。
+   ```powershell
+   Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+   .\setup.ps1
+   ```
 
-#### 2. 首次运行 setup
+   **Linux**
 
-Windows PowerShell：
+   ```bash
+   bash setup.sh
+   ```
 
-```powershell
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\setup.ps1
-```
+   首次运行只生成 `config.json` 并退出。**首次运行不会生成私密订阅地址，也不会安装环境或注册调度。**
 
-Linux：
+3. 修改 `config.json`，保存后再次运行 setup。脚本会验证环境、安装依赖、配置调度，并询问是否立即测试。
 
-```bash
-bash setup.sh
-```
+### 核心能力
 
-首次运行只会生成 `config.json` 并退出，请先修改配置。
+- **自动优选**：聚合文本、JSON、地区名与 emoji 国旗等来源，依次检测 TCP、可用性、HTTP 延迟、抖动和真实带宽。
+- **体验优先**：综合响应速度、稳定性与带宽；全局模式默认输出最优 3 个节点。
+- **多终端同步**：每台终端只替换 GitHub `ip.txt` 中属于自己的记录。
+- **峰谷调度**：北京时间 00:00–18:00 每 3 小时，18:00–24:00 每 1.5 小时。
+- **可选发布**：支持 GitHub、Cloudflare DNS 与 WxPusher 异常通知。
+- **可选链式测速**：验证“客户端 → CF 节点 → CfGfwAX → SOCKS5 → 目标服务器”的真实链路。
 
-公开入口保持为根目录的 `main.py`、`setup.ps1` 和 `setup.sh`。内部实现位于 `core/`，规范配置模板位于 `config/config.example.json`；维护者内部使用 `python -m core.github_sync`、`python -m core.scheduled_run` 和 `scripts/update_fork.*`。根目录同名 JSON 仅用于旧版更新器在快进前读取，请勿单独编辑。旧安装应重新运行 setup，以迁移到模块化定时任务和分组后的更新器。
+### 常用配置
 
-#### 3. 修改 config.json
+完整配置及注释见 [`config/config.example.json`](./config/config.example.json)。优先确认：
 
-- `GITHUB_SYNC_FIELD_ID` - 使用不含个人信息的别名，例如 `device-a`；该值会出现在公开的 `ip.txt` 中
-- `GITHUB_SYNC_TOKEN` / `GITHUB_SYNC_REPOSITORY` - 启用 GitHub 同步时填写
-- `GITHUB_SYNC_MAX_RETRIES` - 不使用 GitHub 同步时设为 `0`
-- `UPDATE_BACKUP_RETENTION` - `1` 仅保留最新一份更新备份；`0` 在更新成功后不保留（失败时仍保留救援备份）
-- `ENABLE_SCHEDULED_TASK` - `true` 自动运行；`false` 仅手动运行
-- `CF_ENABLED` - 启用 DNS 更新时填写 Cloudflare Token、Zone ID 和记录名称
-- `ENABLE_WXPUSHER` - 启用异常通知时填写 App Token 和 UID
-- `CHAIN_PROXY_TEST_ENABLED` - `true` 启用链式测速；默认 `false`，普通用户保持原流程
-- `CHAIN_PROXY_SUBSCRIPTION_URL` - CfGfwAX 的 mixed 订阅地址，例如 `https://代理域名/sub?token=***&target=mixed`
-- `CHAIN_PROXY_CORE_PATH` - sing-box 可执行文件路径；留空时先查找 `PATH` 和专案内 `.sing-box/`，仍缺失则按系统与 CPU 架构自动下载官方稳定版并校验 SHA-256
-- `CHAIN_PROXY_TEST_SAMPLES` / `CHAIN_PROXY_MIN_SUCCESS_RATE` - 默认每节点测试 3 次，至少成功 2 次
-- `CHAIN_PROXY_WORKERS` - 默认低并发 4，避免共享 SOCKS5 拥塞干扰排名
+| 配置 | 用途 |
+| --- | --- |
+| `GITHUB_SYNC_FIELD_ID` | 公开显示的终端别名，例如 `device-a`；不能含空白、`\|` 或 `#` |
+| `GITHUB_SYNC_TOKEN` / `GITHUB_SYNC_REPOSITORY` | GitHub 同步凭据与结果仓库；不用同步时将 `GITHUB_SYNC_MAX_RETRIES` 设为 `0` |
+| `ENABLE_SCHEDULED_TASK` | `true` 自动运行；`false` 仅手动运行并清除已有任务 |
+| `CF_ENABLED` | 启用 Cloudflare DNS 更新 |
+| `ENABLE_WXPUSHER` | 启用异常通知 |
+| `UPDATE_BACKUP_RETENTION` | `1` 保留最新备份；`0` 在更新成功后删除，失败时仍保留救援备份 |
 
-`GITHUB_SYNC_FIELD_ID` 不能包含任何空白字符、`|` 或 `#`。不要把真实 Token 提交到 GitHub。
+不要提交真实 Token。`config.json` 已被 Git 忽略，但仍是本地明文文件，请使用最小权限凭据。
 
-链式测速支持 CfGfwAX VLESS + WebSocket/gRPC + TLS 节点的 ECH、TLS 分片和浏览器指纹；ECH 会使用订阅指定的 DoH 查询地址。请使用 sing-box 1.13 或更高版本，并先在 CGAX-Pages 后台启用 SOCKS5 和“全局代理”。程序会验证 `/video/` 参数确实为全局 SOCKS5，过滤订阅中的外部节点，将仅地址不同的多条 CfGfwAX 节点归并为一个模板，再替换为本轮 TCP 前 150 个候选；如果出现多个不同模板、链式参数无效或核心不可用，将停止而不会降级为直连。XHTTP 目前不是 sing-box 支持的传输，因此遇到它会明确停止；请在 CGAX-Pages 选择 WebSocket 或 gRPC。链式排名按当轮候选池相对计算：HTTP 延迟 40%、带宽 30%、抖动 20%、成功率 10%，不再套用直连模式的固定延迟门槛。
+<details>
+<summary><strong>可选：链式测速</strong></summary>
 
-#### 4. 完成部署
+在 `config.json` 中设置：
 
-保存配置后再次运行 setup。脚本会创建项目虚拟环境、安装依赖、应用定时设置，并询问是否立即测试。
+- `CHAIN_PROXY_TEST_ENABLED=true`
+- `CHAIN_PROXY_SUBSCRIPTION_URL`：CfGfwAX mixed 订阅地址，例如 `https://代理域名/sub?token=***&target=mixed`
+- `CHAIN_PROXY_CORE_PATH`：Xray 26.3.27 路径；留空时按项目内 `.xray/`、`PATH`、固定官方资产的顺序发现或安装
+- `CHAIN_PROXY_PREFLIGHT_URL`：独立的轻量 HTTPS 2xx 预检目标，默认使用 Cloudflare trace
+- `CHAIN_PROXY_TEST_SAMPLES` / `CHAIN_PROXY_MIN_SUCCESS_RATE`：默认测试 3 次，至少成功 2 次
+- `CHAIN_PROXY_WORKERS`：默认低并发 4，减少共享 SOCKS5 拥塞对排名的干扰
 
-### 运行说明
+支持 CfGfwAX VLESS + WebSocket、gRPC 与 XHTTP `stream-one` + TLS，以及 ECH、TLS 分片、浏览器指纹和 flow。启用后，setup 与 `main.py` 会在候选抓取、TCP 测试或调度注册前执行前置真实 SOCKS HTTPS 连接，最多尝试三个订阅端点，并验证 `/video/` 为全局 SOCKS5。无效字段、不可用核心或无法无损映射的配置都会停止，**不降级为直连**。
 
-手动运行：
+setup 只修复项目内 `.venv`/`.xray`；旧 `.sing-box/` 仅供人工回滚，不执行、不修改。链式排名为：HTTP 延迟 40%、带宽 30%、抖动 20%、成功率 10%。订阅 URL 含 Token，只能保存在本地 `config.json`，不要写入配置模板、日志或公开仓库。
+
+</details>
+
+### 手动运行与结果
 
 ```powershell
 .\.venv\Scripts\python.exe -X utf8 main.py
@@ -91,100 +96,102 @@ bash setup.sh
 ./.venv/bin/python main.py
 ```
 
-- 🔄 **自动模式** - `ENABLE_SCHEDULED_TASK=true`；无需手动激活 `.venv`
-- ⏸️ **手动模式** - 改为 `false` 后重新运行 setup，已有定时任务会被清除
-- 📄 **本地结果** - 当前终端结果保存在 `ip.local.txt`
-- 🌐 **远端结果** - 多终端汇总保存在 GitHub `ip.txt`，每个终端默认最多上传 3 行
-- 🔐 **配置安全** - `config.json` 会被 Git 忽略，但仍是明文文件，请使用最小权限 Token
-- 🔒 **链式安全** - 订阅 URL 含 Token；仅写入本地 `config.json`，不要放进 `config/config.example.json`、日志或公开仓库
-- 💾 **更新备份** - 无变化时不创建备份；默认固定保留最新一份于用户主目录，不会按时间戳无限累积
-- 🧩 **DNS 模式** - `TXT` 保存 `IP:端口`；`A` 保存纯 IPv4，作为入口域名时保持 `CF_PROXIED=false`
-- 🛑 **筛选失败保护** - 已启用的可用性或 HTTP 检测全部失败时，本轮保留现有本地、GitHub 与 DNS 结果；风险等级等 DNS 发布过滤无结果时仅保留现有 DNS 记录，本地与 GitHub 仍按已通过前序检测的排序结果更新
+- 本地结果：`ip.local.txt`
+- GitHub 汇总：`ip.txt`，每个终端默认最多 3 行
+- DNS：`TXT` 保存 `IP:端口`；`A` 保存纯 IPv4，作为入口域名时保持 `CF_PROXIED=false`
+- 失败保护：可用性或 HTTP 检测全部失败时，不覆盖现有本地、GitHub 与 DNS 结果；DNS 发布过滤无结果时，仅保留现有 DNS 记录
 
-### 适用范围
+<details>
+<summary><strong>维护与兼容性</strong></summary>
 
-- ✅ Windows 10 / 11
-- ✅ 常见 Linux 发行版
-- ✅ Python 3.9 或更高版本、Git 与 curl
-- ✅ Cloudflare CDN、EdgeTunnel 等入口节点优选场景
-- ✅ [MIT License](./LICENSE)
+- 支持 Windows 10 / 11、常见 Linux、Python 3.9+、Git 与 curl。
+- 公开入口为根目录 `main.py`、`setup.ps1`、`setup.sh`；内部实现位于 `core/`。
+- 上述规范模板是唯一应编辑的示例；根目录同名 JSON 仅供旧版更新器在快进前读取，请勿单独编辑。
+- 维护者内部命令：`python -m core.github_sync`、`python -m core.scheduled_run`、`scripts/update_fork.*`。
+- 旧安装请重新运行 setup，以迁移调度与更新器。
+- [MIT License](./LICENSE)
+
+</details>
 
 ---
 
 ## 🇹🇼 繁體中文
 
-面向 Cloudflare CDN 與 EdgeTunnel 代理情境的跨平台 IP 自動優選工具。
+> **最快上手：執行 setup 產生 `config.json` → 修改設定 → 再次執行 setup。**
 
-### 主要功能
+### 3 步開始
 
-- ✅ **多來源彙整** - 自動解析文字、JSON、中文地區名稱和 emoji 國旗等節點格式
-- ⚡ **分層檢測** - 依序檢查 TCP 成功率、代理可用性、HTTP 延遲、抖動和真實頻寬
-- 🔗 **可選鏈式測速** - 從 TCP 前 150 個候選開始測試「客戶端 → CF 節點 → CfGfwAX → SOCKS5 → 目標伺服器」真實鏈路
-- ⚖️ **體驗評分** - 綜合回應速度、穩定性和頻寬，避免只追求單項最高值
-- 🏆 **最佳輸出** - 全域模式預設保留綜合體驗最好的 3 個節點
-- 📤 **多終端同步** - 每台終端只替換遠端 `ip.txt` 中屬於自己的記錄
-- ⏱️ **峰谷排程** - 依北京時間固定時點執行：00:00–18:00 每 3 小時，18:00–24:00 每 1.5 小時
-- 🖥️ **一鍵部署** - setup 自動更新程式碼、建立 `.venv`、安裝依賴並管理排程任務
-- ☁️ **可選發佈** - 支援 GitHub、Cloudflare DNS 和 WxPusher 異常通知
+1. 複製專案。需要彙總結果到 GitHub 時，先 Fork 本倉庫作為結果倉庫；建議複製上游，以便 setup 自動取得更新。
 
-### 安裝使用
+   ```bash
+   git clone https://github.com/uxudjs/BestCfCdn.git
+   cd BestCfCdn
+   ```
 
-#### 1. 取得專案
+   複製自己的 Fork 前，請先在 GitHub 使用 `Sync fork`。ZIP 可以執行，但不支援 setup 自動更新。
 
-需要 GitHub 彙總結果時，先 Fork 本倉庫作為結果倉庫。建議複製上游專案，讓 setup 可以直接取得更新。
+2. 首次執行 setup。
 
-```bash
-git clone https://github.com/uxudjs/BestCfCdn.git
-cd BestCfCdn
-```
+   **Windows PowerShell**
 
-如果複製自己的 Fork，請先在 GitHub 使用 `Sync fork` 同步上游。ZIP 版本可以執行，但不支援 setup 自動更新。
+   ```powershell
+   Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+   .\setup.ps1
+   ```
 
-#### 2. 首次執行 setup
+   **Linux**
 
-Windows PowerShell：
+   ```bash
+   bash setup.sh
+   ```
 
-```powershell
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\setup.ps1
-```
+   首次執行只產生 `config.json` 並退出。**首次執行不會產生私密訂閱網址，也不會安裝環境或註冊排程。**
 
-Linux：
+3. 修改 `config.json`，儲存後再次執行 setup。腳本會驗證環境、安裝依賴、設定排程，並詢問是否立即測試。
 
-```bash
-bash setup.sh
-```
+### 核心能力
 
-首次執行只會產生 `config.json` 並退出，請先修改設定。
+- **自動優選**：彙整文字、JSON、地區名稱與 emoji 國旗等來源，依序檢測 TCP、可用性、HTTP 延遲、抖動和真實頻寬。
+- **體驗優先**：綜合回應速度、穩定性與頻寬；全域模式預設輸出最佳 3 個節點。
+- **多終端同步**：每台終端只替換 GitHub `ip.txt` 中屬於自己的記錄。
+- **峰谷排程**：北京時間 00:00–18:00 每 3 小時，18:00–24:00 每 1.5 小時。
+- **可選發佈**：支援 GitHub、Cloudflare DNS 與 WxPusher 異常通知。
+- **可選鏈式測速**：驗證「客戶端 → CF 節點 → CfGfwAX → SOCKS5 → 目標伺服器」的真實鏈路。
 
-公開入口維持為根目錄的 `main.py`、`setup.ps1` 與 `setup.sh`。內部實作位於 `core/`，規範設定範本位於 `config/config.example.json`；維護者內部使用 `python -m core.github_sync`、`python -m core.scheduled_run` 與 `scripts/update_fork.*`。根目錄同名 JSON 僅供舊版更新器在快進前讀取，請勿單獨編輯。舊安裝應重新執行 setup，以遷移至模組化排程任務與分組後的更新器。
+### 常用設定
 
-#### 3. 修改 config.json
+完整設定與註解請見 [`config/config.example.json`](./config/config.example.json)。優先確認：
 
-- `GITHUB_SYNC_FIELD_ID` - 使用不含個人資訊的別名，例如 `device-a`；該值會出現在公開的 `ip.txt` 中
-- `GITHUB_SYNC_TOKEN` / `GITHUB_SYNC_REPOSITORY` - 啟用 GitHub 同步時填寫
-- `GITHUB_SYNC_MAX_RETRIES` - 不使用 GitHub 同步時設為 `0`
-- `UPDATE_BACKUP_RETENTION` - `1` 僅保留最新一份更新備份；`0` 在更新成功後不保留（失敗時仍保留救援備份）
-- `ENABLE_SCHEDULED_TASK` - `true` 自動執行；`false` 僅手動執行
-- `CF_ENABLED` - 啟用 DNS 更新時填寫 Cloudflare Token、Zone ID 和記錄名稱
-- `ENABLE_WXPUSHER` - 啟用異常通知時填寫 App Token 和 UID
-- `CHAIN_PROXY_TEST_ENABLED` - `true` 啟用鏈式測速；預設 `false`，一般使用者維持原流程
-- `CHAIN_PROXY_SUBSCRIPTION_URL` - CfGfwAX mixed 訂閱地址，例如 `https://代理網域/sub?token=***&target=mixed`
-- `CHAIN_PROXY_CORE_PATH` - sing-box 執行檔路徑；留空時先尋找 `PATH` 與專案內 `.sing-box/`，仍缺少則依系統與 CPU 架構自動下載官方穩定版並驗證 SHA-256
-- `CHAIN_PROXY_TEST_SAMPLES` / `CHAIN_PROXY_MIN_SUCCESS_RATE` - 預設每節點測試 3 次，至少成功 2 次
-- `CHAIN_PROXY_WORKERS` - 預設低併發 4，避免共用 SOCKS5 壅塞干擾排名
+| 設定 | 用途 |
+| --- | --- |
+| `GITHUB_SYNC_FIELD_ID` | 公開顯示的終端別名，例如 `device-a`；不能含空白、`\|` 或 `#` |
+| `GITHUB_SYNC_TOKEN` / `GITHUB_SYNC_REPOSITORY` | GitHub 同步憑據與結果倉庫；不使用同步時將 `GITHUB_SYNC_MAX_RETRIES` 設為 `0` |
+| `ENABLE_SCHEDULED_TASK` | `true` 自動執行；`false` 僅手動執行並清除已有任務 |
+| `CF_ENABLED` | 啟用 Cloudflare DNS 更新 |
+| `ENABLE_WXPUSHER` | 啟用異常通知 |
+| `UPDATE_BACKUP_RETENTION` | `1` 保留最新備份；`0` 在更新成功後刪除，失敗時仍保留救援備份 |
 
-`GITHUB_SYNC_FIELD_ID` 不能包含任何空白字元、`|` 或 `#`。不要把真實 Token 提交到 GitHub。
+不要提交真實 Token。`config.json` 已被 Git 忽略，但仍是本機明文檔案，請使用最小權限憑據。
 
-鏈式測速支援 CfGfwAX VLESS + WebSocket/gRPC + TLS 節點的 ECH、TLS 分片和瀏覽器指紋；ECH 會使用訂閱指定的 DoH 查詢位址。請使用 sing-box 1.13 或更高版本，並先在 CGAX-Pages 後台啟用 SOCKS5 和「全域代理」。程式會驗證 `/video/` 參數確實為全域 SOCKS5，過濾訂閱中的外部節點，將僅位址不同的多條 CfGfwAX 節點合併為一個模板，再替換成本輪 TCP 前 150 個候選；若出現多個不同模板、鏈式參數無效或核心不可用，程式會停止而不會降級為直連。XHTTP 目前不是 sing-box 支援的傳輸，因此遇到它會明確停止；請在 CGAX-Pages 選擇 WebSocket 或 gRPC。鏈式排名依當輪候選池相對計算：HTTP 延遲 40%、頻寬 30%、抖動 20%、成功率 10%，不再套用直連模式的固定延遲門檻。
+<details>
+<summary><strong>可選：鏈式測速</strong></summary>
 
-#### 4. 完成部署
+在 `config.json` 中設定：
 
-儲存設定後再次執行 setup。腳本會建立專案虛擬環境、安裝依賴、套用排程設定，並詢問是否立即測試。
+- `CHAIN_PROXY_TEST_ENABLED=true`
+- `CHAIN_PROXY_SUBSCRIPTION_URL`：CfGfwAX mixed 訂閱網址，例如 `https://代理網域/sub?token=***&target=mixed`
+- `CHAIN_PROXY_CORE_PATH`：Xray 26.3.27 路徑；留空時依專案內 `.xray/`、`PATH`、固定官方資產的順序尋找或安裝
+- `CHAIN_PROXY_PREFLIGHT_URL`：獨立的輕量 HTTPS 2xx 預檢目標，預設使用 Cloudflare trace
+- `CHAIN_PROXY_TEST_SAMPLES` / `CHAIN_PROXY_MIN_SUCCESS_RATE`：預設測試 3 次，至少成功 2 次
+- `CHAIN_PROXY_WORKERS`：預設低併發 4，減少共用 SOCKS5 壅塞對排名的干擾
 
-### 執行說明
+支援 CfGfwAX VLESS + WebSocket、gRPC 與 XHTTP `stream-one` + TLS，以及 ECH、TLS 分片、瀏覽器指紋和 flow。啟用後，setup 與 `main.py` 會在候選抓取、TCP 測試或排程註冊前執行前置真實 SOCKS HTTPS 連線，最多嘗試三個訂閱端點，並驗證 `/video/` 為全域 SOCKS5。無效欄位、不可用核心或無法無損映射的設定都會停止，**不降級為直連**。
 
-手動執行：
+setup 只修復專案內 `.venv`/`.xray`；舊 `.sing-box/` 僅供人工回滾，不執行、不修改。鏈式排名為：HTTP 延遲 40%、頻寬 30%、抖動 20%、成功率 10%。訂閱網址含 Token，只能儲存在本機 `config.json`，不要寫入設定範本、日誌或公開倉庫。
+
+</details>
+
+### 手動執行與結果
 
 ```powershell
 .\.venv\Scripts\python.exe -X utf8 main.py
@@ -194,100 +201,102 @@ bash setup.sh
 ./.venv/bin/python main.py
 ```
 
-- 🔄 **自動模式** - `ENABLE_SCHEDULED_TASK=true`；不需要手動啟用 `.venv`
-- ⏸️ **手動模式** - 改為 `false` 後重新執行 setup，已有排程任務會被清除
-- 📄 **本機結果** - 目前終端結果儲存在 `ip.local.txt`
-- 🌐 **遠端結果** - 多終端彙總儲存在 GitHub `ip.txt`，每個終端預設最多上傳 3 行
-- 🔐 **設定安全** - `config.json` 會被 Git 忽略，但仍是明文檔案，請使用最小權限 Token
-- 🔒 **鏈式安全** - 訂閱 URL 含 Token；僅寫入本機 `config.json`，不要放進 `config/config.example.json`、日誌或公開倉庫
-- 💾 **更新備份** - 沒有變更時不建立備份；預設固定保留最新一份於使用者主目錄，不會依時間戳無限累積
-- 🧩 **DNS 模式** - `TXT` 儲存 `IP:連接埠`；`A` 儲存純 IPv4，作為入口網域時保持 `CF_PROXIED=false`
-- 🛑 **篩選失敗保護** - 已啟用的可用性或 HTTP 檢測全部失敗時，本輪保留現有本機、GitHub 與 DNS 結果；風險等級等 DNS 發佈過濾無結果時僅保留現有 DNS 記錄，本機與 GitHub 仍依通過前序檢測的排序結果更新
+- 本機結果：`ip.local.txt`
+- GitHub 彙總：`ip.txt`，每個終端預設最多 3 行
+- DNS：`TXT` 儲存 `IP:連接埠`；`A` 儲存純 IPv4，作為入口網域時保持 `CF_PROXIED=false`
+- 失敗保護：可用性或 HTTP 檢測全部失敗時，不覆蓋現有本機、GitHub 與 DNS 結果；DNS 發佈過濾無結果時，僅保留現有 DNS 記錄
 
-### 適用範圍
+<details>
+<summary><strong>維護與相容性</strong></summary>
 
-- ✅ Windows 10 / 11
-- ✅ 常見 Linux 發行版
-- ✅ Python 3.9 或更高版本、Git 與 curl
-- ✅ Cloudflare CDN、EdgeTunnel 等入口節點優選情境
-- ✅ [MIT License](./LICENSE)
+- 支援 Windows 10 / 11、常見 Linux、Python 3.9+、Git 與 curl。
+- 公開入口為根目錄 `main.py`、`setup.ps1`、`setup.sh`；內部實作位於 `core/`。
+- 上述規範範本是唯一應編輯的範例；根目錄同名 JSON 僅供舊版更新器在快進前讀取，請勿單獨編輯。
+- 維護者內部命令：`python -m core.github_sync`、`python -m core.scheduled_run`、`scripts/update_fork.*`。
+- 舊安裝請重新執行 setup，以遷移排程與更新器。
+- [MIT License](./LICENSE)
+
+</details>
 
 ---
 
 ## 🇺🇸 English
 
-A cross-platform IP selection tool for Cloudflare CDN and EdgeTunnel proxy scenarios.
+> **Fastest path: run setup to create `config.json` → edit it → run setup again.**
 
-### Features
+### Start in 3 steps
 
-- ✅ **Multi-source aggregation** - Parses node lists in text, JSON, Chinese region names, emoji flags, and other common formats
-- ⚡ **Layered checks** - Tests TCP success rate, proxy availability, HTTP latency, jitter, and real bandwidth
-- 🔗 **Optional chain testing** - Starting with the top 150 TCP candidates, tests the real client → CF endpoint → CfGfwAX → SOCKS5 → target path
-- ⚖️ **Experience scoring** - Balances responsiveness, stability, and bandwidth instead of maximizing one metric
-- 🏆 **Best endpoint output** - Keeps the three best overall endpoints by default
-- 📤 **Multi-device sync** - Each device replaces only its own lines in the remote `ip.txt`
-- ⏱️ **Peak/off-peak schedule** - Uses fixed Beijing-time slots: every three hours from 00:00 to 18:00 and every 90 minutes from 18:00 to 24:00
-- 🖥️ **One-command setup** - Setup updates code, creates `.venv`, installs dependencies, and manages scheduled tasks
-- ☁️ **Optional publishing** - Supports GitHub, Cloudflare DNS, and WxPusher error notifications
+1. Clone the project. If you need GitHub aggregation, fork this repository as the result repository first. Clone upstream so setup can retrieve updates automatically.
 
-### Installation
+   ```bash
+   git clone https://github.com/uxudjs/BestCfCdn.git
+   cd BestCfCdn
+   ```
 
-#### 1. Get the project
+   Before cloning your own fork, use GitHub's `Sync fork`. ZIP copies can run but do not support setup updates.
 
-To aggregate results on GitHub, fork this repository as the result repository. Clone the upstream project so setup can retrieve updates directly.
+2. Run setup for the first time.
 
-```bash
-git clone https://github.com/uxudjs/BestCfCdn.git
-cd BestCfCdn
-```
+   **Windows PowerShell**
 
-If you clone your own fork, use GitHub's `Sync fork` first. ZIP copies can run but do not support automatic updates through setup.
+   ```powershell
+   Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+   .\setup.ps1
+   ```
 
-#### 2. Run setup for the first time
+   **Linux**
 
-Windows PowerShell:
+   ```bash
+   bash setup.sh
+   ```
 
-```powershell
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\setup.ps1
-```
+   The first run only creates `config.json` and exits. **The first run does not generate a private subscription URL, install an environment, or register scheduling.**
 
-Linux:
+3. Edit `config.json`, save it, and run setup again. The script validates the environment, installs dependencies, configures scheduling, and offers a test run.
 
-```bash
-bash setup.sh
-```
+### Core capabilities
 
-The first run only creates `config.json` and exits. Edit the configuration before continuing.
+- **Automatic selection**: Aggregates text, JSON, region names, emoji flags, and other sources; then tests TCP, availability, HTTP latency, jitter, and real bandwidth.
+- **Experience-first ranking**: Balances responsiveness, stability, and bandwidth; global mode keeps the best three endpoints by default.
+- **Multi-device sync**: Each device replaces only its own lines in GitHub `ip.txt`.
+- **Peak/off-peak schedule**: Beijing time, every three hours from 00:00 to 18:00 and every 90 minutes from 18:00 to 24:00.
+- **Optional publishing**: Supports GitHub, Cloudflare DNS, and WxPusher error notifications.
+- **Optional chain testing**: Verifies the real client → CF endpoint → CfGfwAX → SOCKS5 → target path.
 
-The stable public entry points remain root-level `main.py`, `setup.ps1`, and `setup.sh`. Internal implementation lives under `core/`, and the canonical template is `config/config.example.json`; maintainer-only commands use `python -m core.github_sync`, `python -m core.scheduled_run`, and `scripts/update_fork.*`. The same-named root JSON exists only so legacy updaters can read it before fast-forwarding; do not edit it independently. Existing installations should rerun setup to migrate to the module-based scheduler and grouped updater.
+### Common configuration
 
-#### 3. Edit config.json
+See [`config/config.example.json`](./config/config.example.json) for every option and its comments. Check these first:
 
-- `GITHUB_SYNC_FIELD_ID` - Use a non-identifying alias such as `device-a`; this value appears in public `ip.txt`
-- `GITHUB_SYNC_TOKEN` / `GITHUB_SYNC_REPOSITORY` - Fill these in when GitHub sync is enabled
-- `GITHUB_SYNC_MAX_RETRIES` - Set to `0` when GitHub sync is not needed
-- `UPDATE_BACKUP_RETENTION` - `1` keeps only the latest update backup; `0` removes it after a successful update (a rescue backup is still kept after failure)
-- `ENABLE_SCHEDULED_TASK` - `true` for automatic runs or `false` for manual-only mode
-- `CF_ENABLED` - When enabling DNS updates, fill in the Cloudflare token, Zone ID, and record name
-- `ENABLE_WXPUSHER` - When enabling error notifications, fill in the App Token and UID
-- `CHAIN_PROXY_TEST_ENABLED` - Set to `true` to enable chain testing; the default `false` preserves the original flow
-- `CHAIN_PROXY_SUBSCRIPTION_URL` - CfGfwAX mixed subscription URL, for example `https://proxy.example/sub?token=***&target=mixed`
-- `CHAIN_PROXY_CORE_PATH` - Path to the sing-box executable; leave empty to search `PATH` and the project-local `.sing-box/`, then download the official stable build for the detected OS/CPU and verify its SHA-256 if still missing
-- `CHAIN_PROXY_TEST_SAMPLES` / `CHAIN_PROXY_MIN_SUCCESS_RATE` - Three samples per endpoint by default, with at least two successes required
-- `CHAIN_PROXY_WORKERS` - Low concurrency of four by default to avoid bias from saturating the shared SOCKS5 server
+| Setting | Purpose |
+| --- | --- |
+| `GITHUB_SYNC_FIELD_ID` | Public device alias such as `device-a`; cannot contain whitespace, `\|`, or `#` |
+| `GITHUB_SYNC_TOKEN` / `GITHUB_SYNC_REPOSITORY` | GitHub credentials and result repository; set `GITHUB_SYNC_MAX_RETRIES=0` when sync is unused |
+| `ENABLE_SCHEDULED_TASK` | `true` runs automatically; `false` is manual-only and removes existing tasks |
+| `CF_ENABLED` | Enables Cloudflare DNS updates |
+| `ENABLE_WXPUSHER` | Enables error notifications |
+| `UPDATE_BACKUP_RETENTION` | `1` keeps the latest backup; `0` removes it after success while preserving rescue backups after failure |
 
-`GITHUB_SYNC_FIELD_ID` cannot contain whitespace, `|`, or `#`. Never commit a real token to GitHub.
+Never commit real tokens. Git ignores `config.json`, but it is still a plaintext local file; use least-privilege credentials.
 
-Chain testing supports ECH, TLS fragmentation, and browser fingerprints on CfGfwAX VLESS + WebSocket/gRPC + TLS nodes; ECH uses the DoH resolver supplied by the subscription. Use sing-box 1.13 or newer, and enable SOCKS5 and global proxying in CGAX-Pages first. The tool verifies that `/video/` contains a global SOCKS5 configuration, ignores external subscription entries, collapses CfGfwAX entries that differ only by endpoint address into one template, and replaces that address with the current top 150 TCP candidates. Multiple distinct templates, invalid chain parameters, or an unavailable core stops the run instead of silently falling back to direct tests. XHTTP is not currently a sing-box transport, so the run stops explicitly when it is encountered; select WebSocket or gRPC in CGAX-Pages instead. Chain ranking is relative to the current pool: HTTP latency 40%, bandwidth 30%, jitter 20%, and success rate 10%, without reusing the fixed direct-mode latency thresholds.
+<details>
+<summary><strong>Optional: chain testing</strong></summary>
 
-#### 4. Complete setup
+Set these in `config.json`:
 
-Save the configuration and run setup again. It creates the project virtual environment, installs dependencies, applies scheduling, and asks whether to run a test.
+- `CHAIN_PROXY_TEST_ENABLED=true`
+- `CHAIN_PROXY_SUBSCRIPTION_URL`: CfGfwAX mixed subscription URL, for example `https://proxy.example/sub?token=***&target=mixed`
+- `CHAIN_PROXY_CORE_PATH`: Path to Xray 26.3.27; when empty, discovery or installation checks project-local `.xray/`, `PATH`, then the pinned official asset
+- `CHAIN_PROXY_PREFLIGHT_URL`: Dedicated lightweight HTTPS 2xx target; defaults to Cloudflare trace
+- `CHAIN_PROXY_TEST_SAMPLES` / `CHAIN_PROXY_MIN_SUCCESS_RATE`: Three samples by default, with at least two successes required
+- `CHAIN_PROXY_WORKERS`: Low concurrency of four by default to reduce ranking bias from shared SOCKS5 saturation
 
-### Usage
+Supports CfGfwAX VLESS + WebSocket, gRPC, and XHTTP `stream-one` + TLS, including ECH, TLS fragmentation, browser fingerprints, and flow. When enabled, setup and `main.py` preflight real SOCKS HTTPS before candidate fetching, TCP tests, or scheduler registration, try at most three subscription endpoints, and verify global SOCKS5 semantics in `/video/`. Invalid fields, an unavailable core, or settings that cannot be mapped losslessly stop the run; it **never falls back to direct testing**.
 
-Run manually:
+Setup repairs only project-local `.venv`/`.xray`; legacy `.sing-box/` is retained for manual rollback and is never executed or modified. Chain ranking is HTTP latency 40%, bandwidth 30%, jitter 20%, and success rate 10%. The subscription URL contains a token: keep it only in local `config.json`, never in the configuration template, logs, or public repositories.
+
+</details>
+
+### Manual runs and results
 
 ```powershell
 .\.venv\Scripts\python.exe -X utf8 main.py
@@ -297,23 +306,22 @@ Run manually:
 ./.venv/bin/python main.py
 ```
 
-- 🔄 **Automatic mode** - Set `ENABLE_SCHEDULED_TASK=true`; `.venv` activation is not required
-- ⏸️ **Manual mode** - Set it to `false` and rerun setup to remove existing scheduled tasks
-- 📄 **Local results** - Results for the current device are stored in `ip.local.txt`
-- 🌐 **Remote results** - Aggregated results are stored in GitHub `ip.txt`, with three lines per device by default
-- 🔐 **Configuration safety** - Git ignores `config.json`, but it remains plaintext; use least-privilege tokens
-- 🔒 **Chain-test safety** - The subscription URL contains a token; keep it only in local `config.json`, never in `config/config.example.json`, logs, or public repositories
-- 💾 **Update backups** - No backup is created when nothing changed; by default one latest backup is kept in the user home directory without timestamp accumulation
-- 🧩 **DNS modes** - `TXT` stores `IP:port`; `A` stores plain IPv4 and should keep `CF_PROXIED=false` for an entry hostname
-- 🛑 **Fail-closed filtering** - If enabled availability or HTTP checks reject every candidate, the run preserves the current local, GitHub, and DNS results; if DNS publishing filters such as IP risk reject every ranked node, only existing DNS records are preserved while local and GitHub outputs still use the nodes that passed earlier checks
+- Local results: `ip.local.txt`
+- GitHub aggregation: `ip.txt`, with up to three lines per device by default
+- DNS: `TXT` stores `IP:port`; `A` stores plain IPv4 and should keep `CF_PROXIED=false` for an entry hostname
+- Failure protection: if availability or HTTP checks reject every candidate, existing local, GitHub, and DNS results remain unchanged; empty DNS publishing filters preserve existing DNS records
 
-### Compatibility
+<details>
+<summary><strong>Maintenance and compatibility</strong></summary>
 
-- ✅ Windows 10 / 11
-- ✅ Common Linux distributions
-- ✅ Python 3.9 or newer, Git, and curl
-- ✅ Cloudflare CDN, EdgeTunnel, and similar entry-endpoint selection scenarios
-- ✅ [MIT License](./LICENSE)
+- Supports Windows 10 / 11, common Linux distributions, Python 3.9+, Git, and curl.
+- Public entry points are root-level `main.py`, `setup.ps1`, and `setup.sh`; implementation lives under `core/`.
+- The canonical template linked above is the only example to edit; the same-named root JSON exists only for legacy updaters to read before fast-forwarding. Do not edit it independently.
+- Maintainer commands: `python -m core.github_sync`, `python -m core.scheduled_run`, and `scripts/update_fork.*`.
+- Existing installations should rerun setup to migrate scheduling and updater behavior.
+- [MIT License](./LICENSE)
+
+</details>
 
 ---
 

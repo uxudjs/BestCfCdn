@@ -1,3 +1,4 @@
+import json
 import re
 import unittest
 from pathlib import Path
@@ -50,6 +51,66 @@ class TheoreticalPlatformContractTests(unittest.TestCase):
             "every three hours from 00:00 to 18:00 and every 90 minutes",
             readme,
         )
+
+    def test_trilingual_chain_guidance_covers_the_same_safety_contract(self):
+        readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
+        simplified = readme.split("## 🇨🇳 简体中文", 1)[1].split(
+            "## 🇹🇼 繁體中文", 1
+        )[0]
+        traditional = readme.split("## 🇹🇼 繁體中文", 1)[1].split(
+            "## 🇺🇸 English", 1
+        )[0]
+        english = readme.split("## 🇺🇸 English", 1)[1]
+
+        for phrase in (
+            "Xray 26.3.27",
+            "WebSocket、gRPC 与 XHTTP `stream-one`",
+            "前置真实 SOCKS HTTPS",
+            "修复项目内 `.venv`/`.xray`",
+            "不降级为直连",
+            "首次运行不会生成私密订阅地址",
+        ):
+            self.assertIn(phrase, simplified)
+        for phrase in (
+            "Xray 26.3.27",
+            "WebSocket、gRPC 與 XHTTP `stream-one`",
+            "前置真實 SOCKS HTTPS",
+            "修復專案內 `.venv`/`.xray`",
+            "不降級為直連",
+            "首次執行不會產生私密訂閱網址",
+        ):
+            self.assertIn(phrase, traditional)
+        for phrase in (
+            "Xray 26.3.27",
+            "WebSocket, gRPC, and XHTTP `stream-one`",
+            "preflight real SOCKS HTTPS",
+            "repairs only project-local `.venv`/`.xray`",
+            "never falls back to direct testing",
+            "first run does not generate a private subscription URL",
+        ):
+            self.assertIn(phrase, english)
+
+    def test_chain_template_and_guidance_use_xray_only(self):
+        canonical = PROJECT_ROOT / "config" / "config.example.json"
+        legacy_bridge = PROJECT_ROOT / "config.example.json"
+        config = json.loads(canonical.read_text(encoding="utf-8-sig"))
+        self.assertIs(config["CHAIN_PROXY_TEST_ENABLED"], False)
+        self.assertEqual("", config["CHAIN_PROXY_SUBSCRIPTION_URL"])
+        self.assertEqual("", config["CHAIN_PROXY_CORE_PATH"])
+        core_comment = config["_comment_CHAIN_PROXY_CORE_PATH"]
+        self.assertIn("Xray 26.3.27", core_comment)
+        self.assertIn("Windows/Linux", core_comment)
+        self.assertIn(".xray", core_comment)
+        self.assertIn("WS、gRPC、XHTTP stream-one", core_comment)
+        self.assertNotIn("sing-box", core_comment)
+        self.assertEqual(canonical.read_bytes(), legacy_bridge.read_bytes())
+
+        guidance = (PROJECT_ROOT / "AGENTS.md").read_text(encoding="utf-8")
+        self.assertIn("temporary Xray runtime", guidance)
+        self.assertIn("XHTTP `stream-one`", guidance)
+        self.assertNotIn("temporary sing-box runtime", guidance)
+        self.assertNotIn("XHTTP is not supported", guidance)
+        self.assertNotIn("sing-box downloads", guidance)
 
     def test_runtime_configuration_guidance_uses_the_canonical_template(self):
         app = (PROJECT_ROOT / "core" / "app.py").read_text(

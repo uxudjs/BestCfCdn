@@ -1,460 +1,393 @@
-# 实施计划：BestCfCdn 根目录瘦身与模块分组
+# 实施计划：Xray 链式代理前置连通性与 setup 自修复
 
 ## 规划结论
 
-按 `work-products/SPEC.md` 的推荐方向 A 分两期迁移：第一期建立 `core/`、`scripts/` 和 `config/`，保留仅含委托逻辑的旧 updater/定时任务兼容包装器；第二期必须在 Windows、Linux/CI 和“旧布局升级到新布局”验收完成后，另行删除这些包装器。任何门禁失败都停止，不先删旧路径、不清理缓存。
+按已批准的 `work-products/SPEC.md` 实施：链式代理的 WS、gRPC、XHTTP 全部迁移到单一 Xray 内核。实现必须先完成真实代理预检，再允许候选源请求、TCP 优选、结果写入、DNS/GitHub 副作用或调度注册。
 
-本计划只定义工作，不修改业务代码。实施时每一任务都必须保留当前未提交改动，并把测试文件放在 `work-products/tests/`；测试从最终位置通过 `Path(__file__).resolve().parents[2]` 等相对定位方式访问仓库文件，不写入机器专用绝对路径。
+本计划最初只定义任务；用户已于 2026-08-06 授权本次 `@debug` 修复与同步。commit、push、部署及真实调度修改仍未授权。
 
-## 规划依据
+## 规划依据与当前证据
 
-- 已批准规格：`work-products/SPEC.md`（2026-08-02）。其目标、范围、路径契约、安全边界、回滚与可度量验收条件足够具体，因此不需要新增规格。
-- 当前迁移证据：`work-products/clean-migration.json` 已把正式测试映射到 `work-products/tests/`；这些未提交改动属于既有工作，实施不得覆盖或重新搬回。
-- 当前代码审计：`main.py`、`github_sync.py`、`scheduled_run.py` 和 `chain_proxy.py` 均含根目录路径假设；setup/updater 还把脚本目录当作仓库根。
-- 当前基线：聚焦链式代理 15/15；完整 Windows 套件 79 项通过、6 项 POSIX 条件跳过。该基线只用于防回归，不是 Linux、真实 GitHub、真实 sing-box 或已安装计划任务证明。
-- 跨仓审计发现：`../CfGfwAX/AGENTS.md` 与 `../CGAX-Pages/AGENTS.md` 仍使用旧的 `tests.test_chain_proxy` 命令；用户已于 2026-08-02 授权 Task 9 做最小跨仓规则修正。
+- `core/app.py:2225-2339`：当前先抓取候选、校准并做 TCP 探测，之后才获取订阅和启动链式核心，前置失败门位置错误。
+- `setup.ps1:382-593`、`setup.sh:323-476`：当前先准备环境并注册调度，最后才可选运行完整 `main.py`，没有共享链式预检门。
+- `core/chain_proxy.py`：当前只返回一个逻辑模板、不保留真实端点；XHTTP 被拒绝；`fragment` 被折叠成布尔值；核心仍绑定 sing-box 和动态 `releases/latest`。
+- `work-products/tests/test_chain_proxy.py`：规格记录的变更前基线为 16/16，但只覆盖 sing-box/WS/gRPC 与 XHTTP 拒绝；本次规划未把它冒充为变更后证据。
+- Xray 实施候选为官方当前稳定版 `v26.3.27`。官方发布页将其标为 Latest，并明确包含 XHTTP 与 TLS ECH；本次以 Task 2 的固定资产、三传输配置契约和当前真实订阅提供的 XHTTP 连接门作为固定版本证据。不得自动改用预发布版或运行时追随 `latest`。
 
-规划依据与跨仓规则授权均已具备；授权仅覆盖两个 `AGENTS.md` 中 BestCfCdn 聚焦测试命令的最小修正，不扩大到兄弟仓库业务代码。
+官方依据：
 
-## 架构与迁移决策
+- `https://github.com/XTLS/Xray-core/releases/tag/v26.3.27`
+- `https://xtls.github.io/en/config/transports/`
+- `https://xtls.github.io/en/config/transports/tls.html`
+- `https://github.com/XTLS/Xray-core/discussions/4113`
 
-1. `core/paths.py` 是唯一仓库根与运行时路径解析点；包内模块不得从自身 `__file__` 推断配置、输出、日志、锁或 `.sing-box/` 位于包目录。
-2. 根 `main.py` 最终只委托 `core.app.main`；原实现整体迁入 `core/app.py`，不在本次拆分业务函数。
-3. 包内统一绝对包导入，不增加 `sys.path`、打包工具、第三方依赖或构建步骤。
-4. 内部命令使用 `python -m core.github_sync` 与 `python -m core.scheduled_run`；根 `main.py`、`setup.ps1`、`setup.sh` 仍是公开入口。
-5. updater 必须从 `scripts/` 的自身位置解析父级仓库根，并在写操作前验证 `.git/`、`main.py`、`config/config.example.json`。
-6. `config/config.example.json` 是新代码的规范模板；第一期保留内容相同的根模板，兼容旧 updater 在快进前读取，第二期再与根包装器一并删除。真实 `config.json` 始终留在根目录。
-7. 第一期兼容包装器仅委托新实现，不复制业务逻辑。第二期删除是独立变更集，必须满足 Task 10 的移除条件。
-8. 缓存清理只在所有测试后执行；候选仅限规格白名单，拒绝符号链接、Git 跟踪项、保护目录和用户文件。
+## 实施架构
+
+```text
+setup.ps1 / setup.sh                    main.py -> core.app
+          |                                      |
+          +-------- project .venv Python --------+
+                             |
+                  core.chain_proxy 共享入口
+                             |
+        严格配置 -> 订阅解析 -> Xray 修复/验证 -> SOCKS HTTPS 预检
+                             |
+                   ChainPreflightResult
+             (模板、最多三端点、已验证核心路径)
+                             |
+               后续候选 Xray 运行时复用结果
+```
+
+核心边界：
+
+1. `core.chain_proxy` 负责订阅契约、固定 Xray 资产、配置生成、临时运行时、真实连接预检与内部 CLI；Windows/Linux setup 不复制这些判断。
+2. `core.app` 只在正确阶段调用共享预检并复用结果；链式关闭时不触碰订阅或 Xray。
+3. setup 只管理项目根目录内的 `.venv`、`.xray` 和本项目调度项；旧 `.sing-box` 与项目外核心只保留、不执行、不修改。
+4. 所有正式测试位于 `work-products/tests/`，测试从最终位置按仓库相对关系定位文件。
 
 ## 依赖顺序
 
 ```text
-Task 1 路径基座
-  ├─> Task 2A 本地状态模块
-  ├─> Task 2B 评分模块
-  ├─> Task 3 链式代理模块
-  ├─> Task 4 GitHub 同步模块与脚本
-  └─> Task 5 调度模块与兼容入口
-          └─> Task 6 主程序薄入口
-                  └─> Checkpoint A：Python 行为
-                          └─> Task 7 Windows setup/updater
-                                  └─> Task 8 Linux setup/updater
-                                          └─> Checkpoint B：跨平台布局
-                                                  └─> Task 9 文档与跨仓引用
-                                                          └─> 第一期发布/升级验收
-                                                                  └─> Task 10 删除包装器
-                                                                          └─> Task 11 最终验证与缓存清理
+Task 1 订阅模型与 XHTTP
+  -> Task 2A 固定 Xray 资产与发现
+      -> Task 2B Xray 配置与运行时
+          -> Task 3 共享真实预检与迁移入口
+          -> Task 4 main.py 前置门
+          -> Task 5 Windows setup
+          -> Task 6 Linux setup
+              -> Task 7 三语文档与遗留收口
+                  -> Task 8 完整与真实验收
 ```
 
-Task 2A、2B、3、4、5 在 Task 1 之后可由不同会话准备，但都修改共享导入或测试文件，合并与验证必须按编号串行进行。
+Task 4、5、6 都依赖 Task 3；Task 5 与 Task 6 可在 Task 3 通过后分别实施，但必须在 Checkpoint B 一起验收。
 
-## Task 1：建立路径基座与布局回归骨架
+## Task 1：建立无损 CfGfwAX 订阅结果与 XHTTP 契约
 
-**范围：** 新建无副作用包标记、单一仓库根解析模块和布局回归文件。布局测试先覆盖路径、保护目录、缓存白名单和允许根级契约；后续任务逐步补齐最终路径断言。
+**状态**：已完成（聚焦 22/22；BestCfCdn 完整 116 项中 110 通过、6 项 POSIX 跳过；CfGfwAX 24/24）。
 
-**可能涉及：**
+**范围**
 
-- `core/__init__.py`
-- `core/paths.py`
-- `work-products/tests/test_project_layout.py`
+- 将解析结果从单个 `ChainTemplate` 扩展为“最多三个去重且模板与端点绑定的探针对 + 脱敏来源标识”。
+- 保留 WS 的 `host/path`、gRPC 的 `authority/serviceName`、XHTTP 的 `host/path/mode`，以及 `security`、`sni`、`flow`、`allowInsecure`、`ech`、`fragment`、`fp` 的有效原值。
+- XHTTP 只接受显式 `mode=stream-one`。验证 `/video/` 时先尝试原始密文；仅原始失败且路径恰有一个兼容末尾 `/` 时，再去掉一个 `/` 重试。返回模板仍保留原始传输路径，不宽松改写中间字节。
+- 完全相同的探针对去重；CfGfwAX 随机 CDN `host`/`sni` 与各自端点不得交叉组合。无探针、非全局 SOCKS5、非法端口和无法无损保留的字段 fail closed。
 
-**验收条件：**
+**验收标准**
 
-- [x] `import core` 不读取配置、联网或写文件。
-- [x] `paths.py` 从包位置稳定解析仓库根，并暴露根级 `config.json`、`ip.txt`、`ip.local.txt`、日志、锁、`.sing-box/` 和模板路径。
-- [x] 布局测试精确区分允许删除缓存与 `.venv/`、`.codegraph/`、`.sing-box/`、`.agents/`、配置及用户文件。
+- mixed 明文和整份 base64 内容都返回顺序稳定、去重且最多三个的模板/端点探针对。
+- WS、gRPC、XHTTP `stream-one` 成功；XHTTP 缺失 mode、其他 mode、两个尾斜杠或损坏密文失败。
+- `fragment` 不再是布尔值；测试逐字段证明 ECH、分片、指纹、路径与传输参数未丢失。
+- 错误或快照不出现完整订阅 URL、UUID、VLESS URI、`/video/` 密文或 SOCKS5 凭据。
 
-**验证：**
+**验证**
 
 ```powershell
 $env:PYTHONUTF8='1'
-.\.venv\Scripts\python.exe -m unittest discover -s work-products/tests -p test_project_layout.py -v
-.\.venv\Scripts\python.exe -X utf8 -c "import core; import core.paths"
+.\.venv\Scripts\python.exe -m unittest discover -s work-products/tests -p test_chain_proxy.py -v
+node --test ..\CfGfwAX\work-products\tests\chain_proxy.test.mjs
 ```
 
-**依赖：** 无。
+**依赖**：已批准规格。
+**预计文件**：`core/chain_proxy.py`、`work-products/tests/test_chain_proxy.py`。
+**规模**：M。
+**回滚**：整体回退解析模型与对应测试；不得保留只接受 XHTTP 却丢弃其字段的半迁移状态。
 
-**回滚：** 删除三个新增文件即可；不得触碰任何运行时目录或用户文件。
+## Task 2A：固定 Xray 资产、发现与安全安装
 
-## Task 2A：迁移本地状态模块
+**范围**
 
-**范围：** 将 `local_state.py` 移入包，切换主程序、GitHub 同步和测试导入；不修改本地/远端输出分离与旧重叠路径兼容行为。
+- 先新增资产选择、固定 URL、摘要、身份/版本、原子替换和外部文件零修改的 RED 回归，并记录它们在现有动态 sing-box 路径下按预期失败；之后才实施 GREEN。
+- 用固定 Xray 资产清单和 `resolve_xray_path` 替换运行路径中的 sing-box 发现、下载与版本判断。
+- 以 `v26.3.27` 为候选，先记录每个现有受支持 OS/架构的官方资产名、大小和 SHA-256，再允许下载。若官方资产不能覆盖当前支持矩阵，停止并请求批准，不静默缩减平台。
+- 发现顺序固定为：有效配置路径 -> 项目 `.xray` -> PATH `xray` -> 安装项目 `.xray`。每个候选都验证 Xray 身份、固定版本和配置检查能力；外部无效核心不被修改。
+- 仅从 `XTLS/Xray-core` 固定 HTTPS 发布 URL 下载；限制大小、只提取清单内的 Xray 可执行文件，以同目录临时文件校验后原子替换。
+- `.xray/` 加入忽略与保护集合；`.sing-box/` 继续忽略和保护，但不再执行或自动删除。
 
-**可能涉及：**
+**验收标准**
 
-- `core/local_state.py`
-- `main.py`
-- `github_sync.py`
-- `work-products/tests/test_multi_terminal_sync.py`
+- 单元测试覆盖资产选择、固定 URL、大小/SHA 错误、压缩包穿越/重复可执行文件、原子替换、身份/版本错误及外部文件零修改。
+- 实际候选二进制通过 Xray 身份与固定版本验证；仅 mock 成功不能完成本任务。
+- 下载、校验、身份或版本失败时不替换既有项目 Xray，也不修改外部核心。
+- `rg` 证明核心发现与下载路径不存在 sing-box 命令或动态 `releases/latest`。
 
-**验收条件：**
-
-- [x] 包导入替代根 `local_state` 导入，根级旧模块不存在且无复制实现。
-- [x] 相对 `OUTPUT_FILE` 仍按根级 `config.json` 所在目录解析。
-- [x] 旧的 `OUTPUT_FILE=ip.txt` 与远端路径重叠时仍迁移到 `ip.local.txt`。
-
-**验证：**
+**验证**
 
 ```powershell
-.\.venv\Scripts\python.exe -m unittest discover -s work-products/tests -p test_multi_terminal_sync.py -v
+$env:PYTHONUTF8='1'
+.\.venv\Scripts\python.exe -m unittest discover -s work-products/tests -p test_chain_proxy.py -v
+git diff --check
 ```
 
-**依赖：** Task 1。
+**依赖**：Task 1。
+**预计文件**：`core/chain_proxy.py`、`core/paths.py`、`.gitignore`、`work-products/tests/test_chain_proxy.py`、`work-products/tests/test_project_layout.py`。
+**规模**：M。
+**回滚**：代码与测试整体回退；不删除旧 `.sing-box` 或项目外核心。被忽略的 `.xray` 可保留，除非用户另行授权清理。
 
-**回滚：** 恢复根模块及原导入；不改写结果文件。
+## Task 2B：实现 Xray 三传输配置与临时运行时
 
-## Task 2B：迁移评分模块
+**范围**
 
-**范围：** 将 `proxy_scoring.py` 移入包，切换主程序和评分测试导入；不修改公式、排序、数据类型或候选选择语义。
+- 先新增 WS、gRPC、XHTTP、TLS/ECH/fragment/fp/flow/allowInsecure 映射、配置检查和运行时清理的 RED 回归，并记录现有 sing-box 生成器按预期失败；之后才实施 GREEN。
+- 用 `build_xray_config` 和 `XrayRuntime` 替换 sing-box 配置与进程调用。
+- 每个端点生成独立本地 SOCKS 入站、VLESS 出站与路由。WS、gRPC、XHTTP 使用固定版本 schema，XHTTP 显式 `stream-one` 且不启用冲突 mux。
+- 按固定版本实际 schema 无损映射 SNI、Host/Authority、路径、证书校验、`fp`、ECH 查询值、完整 fragment 参数、`flow` 与 `allowInsecure`；任何已设置但不能无损映射的字段都在网络前 `CORE_ERROR`，不得静默忽略。
 
-**可能涉及：**
+**验收标准**
 
-- `core/proxy_scoring.py`
-- `main.py`
-- `work-products/tests/test_proxy_scoring.py`
-- `work-products/tests/test_project_layout.py`
+- 生成配置的逐字段测试覆盖 WS、gRPC、XHTTP 以及 TLS/ECH/fragment/fp/flow/allowInsecure；无法映射的已设置字段 fail closed。
+- 下载并校验后的实际固定 Xray 分别对 WS、gRPC、XHTTP 配置通过只读配置检查，并记录命令、版本和退出码；不得提交二进制或临时配置。
+- 运行时启动失败、监听失败和日志错误均脱敏；正常退出不遗留进程、临时配置或秘密日志。
 
-**验收条件：**
-
-- [x] 包导入替代根 `proxy_scoring` 导入，根级旧模块不存在且无复制实现。
-- [x] 评分 API、排序和带宽饱和语义不变。
-- [x] 带宽失败、部分结果和无可用带宽的回退次序保持当前行为。
-
-**验证：**
+**验证**
 
 ```powershell
-.\.venv\Scripts\python.exe -m unittest discover -s work-products/tests -p test_proxy_scoring.py -v
+$env:PYTHONUTF8='1'
+.\.venv\Scripts\python.exe -m unittest discover -s work-products/tests -p test_chain_proxy.py -v
+git diff --check
 ```
 
-**依赖：** Task 1；合并时排在 Task 2A 之后以避免共享 `main.py` 冲突。
+**依赖**：Task 1、Task 2A。
+**预计文件**：`core/chain_proxy.py`、`work-products/tests/test_chain_proxy.py`。
+**规模**：M。
+**回滚**：与 Task 2A 一起回退 Xray 单内核运行路径；不得留下“已下载 Xray、候选测试仍执行 sing-box”的半迁移状态。
+## Task 3：实现共享真实连接预检、错误分类与配置迁移
 
-**回滚：** 恢复根评分模块及原导入；不改写任何测速结果。
+**范围**
 
-## Task 3：迁移链式代理模块
+- 先新增真实 SOCKS HTTPS 失败分类、最多三端点、单次订阅、严格布尔值、配置迁移和幂等性的 RED 回归，并记录现有晚检查路径按预期失败；之后才实施 GREEN。
+- 在 `core.chain_proxy` 提供单一 Python API，并提供 setup 可调用的内部模块入口，例如 `python -m core.chain_proxy preflight --config config.json`；命令行只传配置文件路径，不传订阅或凭据。
+- 严格验证 `CHAIN_PROXY_TEST_ENABLED` 为 JSON 布尔值。`false` 立即成功且不请求订阅、不解析或下载 Xray；`true` 才进入订阅、核心和连接状态机。
+- 严格验证订阅 HTTPS URL、无 URL 用户名/密码、2 MiB 上限与请求超时，然后复用 Task 1 解析结果。
+- 用最多三个真实订阅探针对启动 Xray，通过本地 SOCKS 对独立的轻量 HTTPS 2xx 目标发起最小请求；不得复用 CfGfwAX 明确禁止的测速域名。任一 HTTP 2xx 通过，全部失败为 `CONNECTIVITY_ERROR`。仅配置检查或端口就绪不算通过。
+- 返回 `ChainPreflightResult`，至少包含模板、已验证核心路径和端点证据，供 `core.app` 后续复用；结果不得包含可打印秘密。
+- 给 `ChainProxyError` 增加稳定分类：`ENVIRONMENT_ERROR`、`SUBSCRIPTION_ERROR`、`CORE_ERROR`、`CONNECTIVITY_ERROR`，并统一阶段、脱敏原因与恢复建议。
+- 当非空 `CHAIN_PROXY_CORE_PATH` 指向 sing-box、无效或不兼容外部核心，而项目 Xray 已完整验证时，只原子更新该字段为可移动的项目相对路径；其他 JSON 字段语义、UTF-8 与文件权限保持。空值保持空值以继续使用共享发现顺序。
 
-**范围：** 将 `chain_proxy.py` 移入包，改用统一仓库根解析 `.sing-box/`，更新主程序和聚焦测试导入；保留所有 fail-closed 行为。
+**验收标准**
 
-**可能涉及：**
+- 配置检查成功但 SOCKS HTTPS 请求失败时返回 `CONNECTIVITY_ERROR` 和非零 CLI 退出码。
+- 三端点中第二或第三个成功可通过；最多尝试三个，全部失败不降级直连。
+- 同一预检只请求一次订阅；错误、stdout/stderr 和通知用固定脱敏夹具证明不泄密。
+- 旧 sing-box 配置字段成功迁移且旧 `.sing-box`/外部文件未变；下载、校验或连接失败不改写配置。
+- 第二次运行有效环境不下载、不改配置，具备幂等证据。
 
-- `core/chain_proxy.py`
-- `main.py`
-- `work-products/tests/test_chain_proxy.py`
-- `work-products/tests/test_project_layout.py`
-
-**验收条件：**
-
-- [x] mixed/base64 VLESS、WS/gRPC、TLS、ECH、fragment、fingerprint 和 `/video/` 全局 SOCKS5 语义不变。
-- [x] XHTTP、模糊模板、非全局 SOCKS5、无效资源及 SHA-256 不匹配继续拒绝。
-- [x] 默认 sing-box 仍解析到根级 `.sing-box/`，不落到 `core/.sing-box/`。
-
-**验证：**
+**验证**
 
 ```powershell
 $env:PYTHONUTF8='1'
 .\.venv\Scripts\python.exe -m unittest discover -s work-products/tests -p test_chain_proxy.py -v
 ```
 
-**依赖：** Task 1；合并时排在 Task 2B 之后以避免共享 `main.py` 冲突。
+**依赖**：Task 1、Task 2A、Task 2B。
+**预计文件**：`core/chain_proxy.py`、`work-products/tests/test_chain_proxy.py`。
+**规模**：M。
+**回滚**：回退 API、CLI 和配置迁移为一个单元；若已迁移真实 `config.json`，回滚代码不自动改回 sing-box，避免重新启用旧核心。
 
-**回滚：** 恢复根模块与导入；保留 `.sing-box/` 及任何已下载且校验通过的运行时。
+## Task 4：把 main 链式门移动到第一个候选请求之前
 
-## Task 4：迁移 GitHub 同步模块与手工脚本
+**范围**
 
-**范围：** 将 `github_sync.py` 变为可用 `-m` 执行的包模块，把 `git_sync.ps1/.sh` 移入 `scripts/`，并把主程序的子进程调用切换为模块入口。
+- 在 `core.app::_run()` 的第一个候选源请求之前调用共享预检；链式配置类型错误也在任何网络请求前失败。
+- 删除当前候选形成后才获取订阅/解析核心的晚检查。
+- 后续候选 Xray 运行时只使用同一 `ChainPreflightResult` 的模板和核心路径，不重新获取订阅或重新选核心。
+- 预检失败保持候选源、校准、TCP、输出、DNS、GitHub 同步调用数为零；链式关闭流程保持原行为。
 
-**可能涉及：**
+**验收标准**
 
-- `core/github_sync.py`
-- `scripts/git_sync.ps1`
-- `scripts/git_sync.sh`
-- `main.py`
-- `work-products/tests/test_multi_terminal_sync.py`
+- RED/GREEN 调用记录证明预检严格早于 `fetch_additional_source`、`calibrate_regions` 和 `test_node`。
+- 任一预检错误使进程非零退出，且 `write_ip_txt`、Cloudflare DNS、GitHub 同步与通知内容不泄密。
+- 预检成功的完整链式流程仅获取一次订阅；候选运行时复用同一模板和核心路径。
+- `CHAIN_PROXY_TEST_ENABLED=false` 时预检 no-op 且现有直连测量回归通过。
 
-**验收条件：**
-
-- [x] `python -m core.github_sync` 默认读取根 `config.json`，并继续按 `OUTPUT_FILE` 读取本地结果。
-- [x] CLI 参数、退出码、冲突重试与按终端字段替换行为不变。
-- [x] 主程序和脚本不再依赖根 `github_sync.py`；错误输出不得暴露 Token、完整订阅 URI 或凭据。
-
-**验证：**
-
-```powershell
-.\.venv\Scripts\python.exe -X utf8 -m core.github_sync --help
-.\.venv\Scripts\python.exe -m unittest discover -s work-products/tests -p test_multi_terminal_sync.py -v
-```
-
-**依赖：** Task 2A。
-
-**回滚：** 恢复根同步模块和脚本调用；不得修改远端 `ip.txt`，验证使用 mock/临时数据。
-
-## Task 5：迁移调度模块并建立一期兼容入口
-
-**范围：** 将调度实现移入包；根 `scheduled_run.py` 暂时变为纯委托包装器，保证旧计划任务在 setup 重新注册前仍可运行。
-
-**可能涉及：**
-
-- `core/scheduled_run.py`
-- `scheduled_run.py`（一期包装器）
-- `work-products/tests/test_multi_terminal_sync.py`
-- `work-products/tests/test_project_layout.py`
-
-**验收条件：**
-
-- [x] `python -m core.scheduled_run` 从根读取配置、锁文件并在根工作目录调用公开 `main.py`。
-- [x] 忙时 90 分钟、非忙时 180 分钟、30 分钟唤醒、禁用开关和防重入语义不变。
-- [x] 根包装器不包含调度业务逻辑，并记录 Task 10 的可验证移除条件。
-
-**验证：**
+**验证**
 
 ```powershell
-.\.venv\Scripts\python.exe -m unittest discover -s work-products/tests -p test_multi_terminal_sync.py -v
-.\.venv\Scripts\python.exe -X utf8 -c "import core.scheduled_run"
-```
-
-**依赖：** Task 1。
-
-**回滚：** 恢复根调度实现和原计划任务命令；不删除锁文件以外的任何运行时数据。
-
-## Task 6：把主程序收敛为薄入口
-
-**范围：** 将原 `main.py` 实现整体迁入 `core/app.py`，用 `paths.py` 替换包目录路径假设，根 `main.py` 仅导入并执行 `main()`；更新内部测试导入。
-
-**可能涉及：**
-
-- `core/app.py`
-- `main.py`
-- `work-products/tests/test_measurement_flow.py`
-- `work-products/tests/test_multi_terminal_sync.py`
-- `work-products/tests/test_project_layout.py`
-
-**验收条件：**
-
-- [x] 根入口符合规格中的最小委托形态，`python main.py` 调用方式和退出语义不变。
-- [x] 配置、Token、IP 信息缓存、日志、本地/远端输出和 sing-box 路径全部仍指向仓库根。
-- [x] 原业务函数只有一份，测速、筛选、评分、DNS、GitHub 同步和链式代理语义不变。
-
-**验证：**
-
-```powershell
+$env:PYTHONUTF8='1'
 .\.venv\Scripts\python.exe -m unittest discover -s work-products/tests -p test_measurement_flow.py -v
-.\.venv\Scripts\python.exe -m unittest discover -s work-products/tests -p test_project_layout.py -v
-.\.venv\Scripts\python.exe -X utf8 -c "import core.app, main; assert main.main is core.app.main"
+.\.venv\Scripts\python.exe -m unittest discover -s work-products/tests -p test_chain_proxy.py -v
 ```
 
-**依赖：** Tasks 2A、2B、3–5。
+**依赖**：Task 3。
+**预计文件**：`core/app.py`、`work-products/tests/test_measurement_flow.py`、必要时 `work-products/tests/test_chain_proxy.py`。
+**规模**：M。
+**回滚**：Task 3 可保留为独立内部能力，但不得发布会恢复“最后才检查”的 `core.app`；发布回滚必须同时恢复规格前整个链式单元。
 
-**回滚：** 恢复原根实现与导入；不得回滚或覆盖根级 `config.json` 和输出。
+## Checkpoint A：Python 行为门
 
-## Checkpoint A：Python 行为门禁
+- Task 1 至 Task 4 的聚焦测试全部通过。
+- 实际固定 Xray 已对 WS、gRPC、XHTTP 配置检查成功。
+- 预检失败时，候选源请求和 TCP 探测均为 0；预检成功时只取一次订阅。
+- 链式关闭回归保持通过。
+- 任一项失败即停止，不进入 setup 调度改造。
 
-- [x] 聚焦链式代理保持 15/15 或更高且零失败。
-- [x] Windows 完整套件至少保持既有 79 项通过、6 项 POSIX skip，新增测试全部通过。
-- [x] 所有 `core` 模块从仓库根导入，无 `sys.path` 注入。
-- [x] 根路径、输出、链式代理与 GitHub 同步的 mock 行为一致。
-- [x] 任一失败即停止，不进入 setup/updater 迁移。
+## Task 5：Windows setup 项目环境自修复与调度门
 
-## Task 7：迁移 Windows setup/updater 与配置模板第一阶段
+**范围**
 
-**范围：** 把 PowerShell updater 实现移入 `scripts/`，根 updater 暂时保留纯委托包装器；`setup.ps1` 改用新 updater 和模块化调度入口；先新增 `config/config.example.json`，在 Linux 切换完成前暂时保留内容相同的根模板。
+- 先新增 `.venv` 缺失/损坏/有效、reparse point 拒绝、依赖导入及预检先于调度的 Windows RED 回归，并记录现有 setup 按预期失败；之后才实施 GREEN。
+- `.venv` 不存在时，使用受支持的 bootstrap Python 在项目根准确路径创建；不使用或修改当前激活的项目外环境。
+- 将 `.venv` 判定从“解释器文件存在”提升为：解释器可启动、Python >= 3.9、pip 可用、核心依赖可导入。有效环境幂等复用。
+- 损坏环境只在确认目标是项目根下真实目录且不是 reparse point 后修复：先把旧 `.venv` 改名为同目录备份，再在准确的 `.venv` 路径重建；失败时恢复旧目录，成功后才移除备份。项目外环境永不修改。
+- 对新建或修复的环境不执行激活；后续全部命令使用项目 `.venv` 的绝对解释器路径，依次修复 pip、安装 `requirements.txt` 与现有 Brotli 依赖，并实际导入 `requests`、`aiohttp` 和 Brotli 实现。
+- 依赖成功后、任何 COM/schtasks 注册前，先移除/禁用本项目旧任务，再调用 Task 3 的共享模块入口；失败非零并保持本项目任务不存在。
+- 共享入口在链式关闭时 no-op；开启时负责准备/验证 `.xray` 与真实连接。成功后才按 `ENABLE_SCHEDULED_TASK` 注册或保持关闭。
+- 首次缺少 `config.json` 的两阶段流程不变：只生成模板、移除本项目旧任务并停止，不安装环境或猜测秘密。
 
-**可能涉及：**
+**验收标准**
 
-- `setup.ps1`
-- `scripts/update_fork.ps1`
-- `update_fork.ps1`（一期包装器）
-- `config/config.example.json`
-- `work-products/tests/test_windows_updater.py`
-- `work-products/tests/test_multi_terminal_sync.py`
+- 已配置项目在 `.venv` 完全缺失时可创建环境、安装 requirements/Brotli 并通过实际导入；后续命令记录为项目绝对解释器路径。
+- 调用顺序测试证明：依赖导入 -> 移除本项目任务 -> 共享预检 -> 注册任务。
+- 预检失败、损坏 `.venv` 修复失败或配置类型错误时，没有可运行的新任务，且退出码非零。
+- 有效 `.venv`/`.xray` 第二次 setup 不重建、不下载、不无意义改写配置。
+- reparse point、项目外路径和旧 `.sing-box` 不被删除或覆盖。
+- PowerShell 5.1 解析通过，现有管理员、自更新和 SYSTEM 调度语义不被无关改写。
 
-**验收条件：**
-
-- [x] `scripts/update_fork.ps1` 从父目录解析并验证仓库根，在任何写操作前验证必要文件。
-- [x] setup 从新模板生成根 `config.json`，新旧配置合并、备份保留 0/1、失败回滚和自更新重启语义不变。
-- [x] 计划任务注册使用 `-m core.scheduled_run`，同时能识别并移除旧根调度命令；PowerShell 文件保持 UTF-8 BOM。
-
-**验证：**
+**验证**
 
 ```powershell
-$files = @('setup.ps1', 'scripts/update_fork.ps1', 'update_fork.ps1')
-foreach ($file in $files) {
-    [void][scriptblock]::Create((Get-Content -LiteralPath $file -Raw -Encoding utf8))
-}
-.\.venv\Scripts\python.exe -m unittest discover -s work-products/tests -p test_windows_updater.py -v
+$env:PYTHONUTF8='1'
+.\.venv\Scripts\python.exe -m unittest discover -s work-products/tests -p test_platform_contract.py -v
 .\.venv\Scripts\python.exe -m unittest discover -s work-products/tests -p test_multi_terminal_sync.py -v
+$files = @('setup.ps1', 'scripts/git_sync.ps1', 'scripts/update_fork.ps1')
+foreach ($file in $files) { [void][scriptblock]::Create((Get-Content -LiteralPath $file -Raw -Encoding utf8)) }
 ```
 
-**依赖：** Checkpoint A。
+**依赖**：Task 3、Checkpoint A。
+**预计文件**：`setup.ps1`、`work-products/tests/test_platform_contract.py`、`work-products/tests/test_multi_terminal_sync.py`，必要时新增 `work-products/tests/test_setup_chain_preflight.py`。
+**规模**：M。
+**回滚**：回退 setup 代码前先确认本项目任务状态；不得把失败配置重新注册。环境备份仅由本次受控修复创建和清理。
 
-**回滚：** 恢复根 updater 实现、旧调度命令和根模板；不得回滚用户配置或删除备份。
+## Task 6：Linux setup 项目环境自修复与 cron 门
 
-## Task 8：迁移 Linux setup/updater 并完成模板切换
+**范围**
 
-**范围：** 把 Bash updater 实现移入 `scripts/`，根 updater 暂时保留纯委托包装器；`setup.sh` 使用新 updater、模块化调度和 `config/config.example.json`；根模板作为旧 updater 的一期兼容副本保留到第二期。
+- 先新增 `.venv` 缺失/损坏/有效、符号链接拒绝、目标用户所有权及预检先于 cron 的 Linux RED 回归，并记录现有 setup 按预期失败；之后才实施 GREEN。
+- `.venv` 不存在时，以目标用户和受支持的 bootstrap Python 在项目根准确路径创建；损坏时按 Task 5 的备份/恢复契约修复，并拒绝符号链接、项目外目标和无法安全恢复的目录。
+- 不激活环境；所有后续命令使用项目 `.venv/bin/python` 的绝对路径，修复 pip、安装 `requirements.txt` 与现有 Brotli 依赖，并实际导入 `requests`、`aiohttp` 和 Brotli 实现。
+- 依赖成功后先从目标用户 crontab 精确移除本项目条目，保留其他 cron；之后调用同一 Python 预检入口，成功后才按开关写回本项目条目。
+- 确保以目标用户而非 root 创建 `.venv`、`.xray` 和配置临时文件；现有包管理器与 sudo 边界保持不变。
+- 共享入口在链式关闭时 no-op，不引入 Xray 下载或订阅请求。
 
-**可能涉及：**
+**验收标准**
 
-- `setup.sh`
-- `scripts/update_fork.sh`
-- `update_fork.sh`（一期包装器）
-- `config.example.json`（一期兼容副本，内容必须与规范模板相同）
-- `work-products/tests/test_setup_update_integration.py`
-- `work-products/tests/test_multi_terminal_sync.py`
+- Bash 集成/源契约测试证明预检严格早于 `write_target_crontab` 注册动作；失败时本项目 cron 不存在、其他条目字节语义保持。
+- 已配置项目在 `.venv` 完全缺失时可由目标用户创建并通过 requirements/Brotli 实际导入；损坏环境失败时恢复旧目录，外部或链接目录零修改。
+- 有效环境重复 setup 幂等，文件所有者保持目标用户。
+- `bash -n` 与现有更新、配置合并、非交互执行回归通过。
 
-**验收条件：**
-
-- [x] `scripts/update_fork.sh` 显式解析父级仓库根，并保留快进、配置合并、备份、失败回滚与自更新接管行为。
-- [x] cron 注册使用 `python -m core.scheduled_run`，清理逻辑同时识别旧命令，不覆盖其他用户 cron。
-- [x] 新 setup/updater 仅消费 `config/config.example.json`；根模板仅为相同内容的一期兼容副本，根真实 `config.json`、远端 `ip.txt` 和 `_headers` 位置不变。
-
-**验证：**
-
-```bash
-bash -n setup.sh scripts/git_sync.sh scripts/update_fork.sh update_fork.sh
-PYTHONUTF8=1 ./.venv/bin/python -m unittest discover \
-  -s work-products/tests -p test_setup_update_integration.py -v
-```
-
-按用户 2026-08-03 的明确授权，本任务以理论多平台门禁代替真实 Linux/CI：Git Bash `bash -n`、跨平台源契约、嵌入 Python 代码编译及 Windows 完整回归必须通过；6 项 POSIX skip 必须单独披露，不得表述为真实 Linux 证明。
-
-**依赖：** Task 7。
-
-**回滚：** 恢复根 Bash updater、旧 cron 命令和根模板；保护 `config.json`、crontab 非项目项与备份。
-
-## Checkpoint B：跨平台布局门禁
-
-- [x] Windows 与 Linux setup/update 使用同一模板和模块命令。
-- [x] Windows PowerShell 静态解析、BOM、更新器回归通过。
-- [x] Git Bash `bash -n`、跨平台源契约和嵌入 Python 代码编译通过；6 项 POSIX skip 单独披露。
-- [x] 新鲜配置、既有配置、无更新、正常快进、失败回滚、备份保留 0/1 均有理论源契约证据。
-- [x] 根兼容入口、旧模板副本和 setup 自更新重载路径构成旧布局升级的理论证据；未声明真实安装证明。
-
-## Task 9：同步三语文档、项目规则与跨仓命令
-
-**范围：** 同步 README 简体中文、繁体中文、英文三部分和本仓 `AGENTS.md`；按 2026-08-02 已取得的授权，修正兄弟仓库指向 BestCfCdn 的旧测试命令。
-
-**可能涉及：**
-
-- `README.md`
-- `AGENTS.md`
-- `../CfGfwAX/AGENTS.md`（已授权最小规则修正）
-- `../CGAX-Pages/AGENTS.md`（已授权最小规则修正）
-
-**验收条件：**
-
-- [x] 三语文档统一说明公开入口、新内部命令、模板位置和一期兼容/移除条件。
-- [x] 本仓规则使用 `work-products/tests/`、`core/`、`scripts/` 和新的平台验证命令。
-- [x] 两兄弟仓库改用从 BestCfCdn 根执行的 `work-products/tests/test_chain_proxy.py` 聚焦命令；不复制无关规则。
-
-**验证：**
+**验证**
 
 ```powershell
-rg -n "tests\.test_chain_proxy|tests[/\\]|scheduled_run\.py|github_sync\.py|update_fork\.(ps1|sh)|config\.example\.json" README.md AGENTS.md ..\CfGfwAX\AGENTS.md ..\CGAX-Pages\AGENTS.md
+$env:PYTHONUTF8='1'
+.\.venv\Scripts\python.exe -m unittest discover -s work-products/tests -p test_setup_update_integration.py -v
+.\.venv\Scripts\python.exe -m unittest discover -s work-products/tests -p test_platform_contract.py -v
+bash -n setup.sh scripts/git_sync.sh scripts/update_fork.sh
+```
+
+**依赖**：Task 3、Checkpoint A。
+**预计文件**：`setup.sh`、`work-products/tests/test_setup_update_integration.py`、`work-products/tests/test_platform_contract.py`，必要时 `work-products/tests/test_setup_chain_preflight.py`。
+**规模**：M。
+**回滚**：只回退本项目 setup/测试；不得覆盖目标用户其他 cron，也不得自动恢复会运行失败链式配置的旧条目。
+
+## Checkpoint B：跨平台 setup 门
+
+- Windows 与 Linux 都调用同一个 Python 预检入口，没有复制订阅解析、Xray 下载或连接判断。
+- 两个平台均先移除本项目旧调度，预检成功后才注册；失败时不留下可运行调度。
+- 缺失、损坏和有效 `.venv` 三类路径都有测试；链接与项目外环境 fail closed。
+- 静态/模拟测试只称为跨平台契约证据，不称为真实 Windows/Linux 空环境安装证明。
+
+## Task 7：同步配置、三语文档与遗留运行引用
+
+**范围**
+
+- 更新 `config/config.example.json`：Xray 单内核、XHTTP `stream-one`、项目 `.xray`、前置真实连接、严格布尔值、首次配置边界与失败不降级。
+- 同步 README 简体中文、繁体中文、英文三个区段，明确 setup 可修复项目 `.venv`/`.xray`，但不能生成私密订阅。
+- 更新项目规则中已过时的 “XHTTP 不支持/sing-box 运行路径” 描述，同时保留 `.sing-box` 仅为人工回滚遗留的安全边界。
+- 扫描 sing-box/XHTTP/链式核心引用；运行时代码不得执行 sing-box，测试与文档只允许保留迁移、回滚或“不得执行”的明确语境。
+- 仅当聚焦测试证明 setup 兼容契约受影响时，才最小修改 `scripts/update_fork.ps1`/`.sh`；不得顺手改变更新策略。
+
+**验收标准**
+
+- 三语内容覆盖同一 6 项：Xray、WS/gRPC/XHTTP、前置实连、项目内自修复、失败关闭、首次私密配置。
+- 模板不含真实 URL/Token/UUID；README 示例继续使用 `***`。
+- `.xray/` 被 Git 忽略并受清理保护，`.sing-box/` 仍保留但无执行路径。
+- 文档、模板和项目规则不再引导用户配置 sing-box。
+
+**验证**
+
+```powershell
+rg -n "sing-box|XHTTP|CHAIN_PROXY_CORE_PATH|\.xray" README.md AGENTS.md config core setup.ps1 setup.sh work-products/tests
 git diff --check
 ```
 
-允许迁移规格、迁移清单和一期包装器保留历史路径；其余命中必须逐项解释或修正。
+**依赖**：Task 4、Task 5、Task 6、Checkpoint B。
+**预计文件**：`README.md`、`config/config.example.json`、`AGENTS.md`；更新脚本仅在测试证明必要时加入。
+**规模**：M。
+**回滚**：文档、模板与实现必须一起回滚；不得留下声称支持 XHTTP、实际却执行旧核心的文档。
 
-**依赖：** Checkpoint B；跨仓规则修改已获用户授权。
+## Task 8：完整回归、消费者契约与真实验收
 
-**回滚：** 各仓规则独立回滚；不把一个仓库的规则整段复制到另一个仓库。
+**范围**
 
-## 第一期发布与升级验收门禁
+- 执行本地完整回归、跨仓消费者契约、秘密扫描，以及用户本次接受的 Windows/Linux 理论跨平台门；可用的真实订阅类型另行验证，不在本任务新增功能。
 
-第一期变更集保留 `scheduled_run.py`、`update_fork.ps1`、`update_fork.sh` 三个纯委托包装器。用户于 2026-08-03 再次明确继续 `@uxu-code:build auto`，授权进入独立第二期并删除兼容包装器与根模板副本。
+**验证**
 
-- [x] Windows 理论升级契约：根 `setup.ps1`、兼容 updater、HEAD 变化检测、重载和模块化任务命令完整。
-- [x] Linux 理论升级契约：根 `setup.sh`、兼容 updater、HEAD 变化检测、重载和模块化 cron 命令完整。
-- [x] 新鲜配置、既有配置合并、无更新、快进、失败回滚及备份 0/1 的源契约完整。
-- [x] 仓库、三语文档和已授权兄弟仓库除包装器、根模板兼容副本和迁移记录外不存在旧路径消费者。
-- [x] 第一期理论验收完成；6 项 POSIX skip 和真实安装未验证单独披露，包装器因第二期未授权继续保留。
-
-## Task 10：第二期删除兼容包装器并锁定根目录允许列表
-
-**范围：** 在第一期门禁全部通过后的独立变更集中，删除三个根兼容包装器及根模板副本，收紧布局测试和陈旧引用扫描。
-
-**可能涉及：**
-
-- `scheduled_run.py`（删除）
-- `update_fork.ps1`（删除）
-- `update_fork.sh`（删除）
-- `config.example.json`（删除一期兼容副本）
-- `work-products/tests/test_project_layout.py`
-- `work-products/tests/test_multi_terminal_sync.py`
-
-**验收条件：**
-
-- [x] 根级 Python 业务入口仅 `main.py`，根级平台入口仅 `setup.ps1`、`setup.sh`。
-- [x] updater、调度、setup、README 和规则中没有旧物理路径消费者。
-- [x] 根级允许列表没有意外增长，且 `config.json`、`ip.txt`、`_headers` 等保留项仍在原位。
-
-**验证：**
-
-```powershell
-.\.venv\Scripts\python.exe -m unittest discover -s work-products/tests -p test_project_layout.py -v
-rg -n --hidden -g '!.git/**' -g '!.venv/**' -g '!.codegraph/**' \
-  -e 'scheduled_run\.py' -e 'update_fork\.(ps1|sh)' -e 'github_sync\.py' .
-```
-
-**依赖：** 第一期发布与升级验收门禁。
-
-**回滚：** 恢复纯委托包装器；不恢复业务实现副本，不改用户任务状态。
-
-## Task 11：完整验证后清理白名单缓存
-
-**范围：** 运行所有本地、静态、跨平台和升级验证；通过后记录并删除规格白名单缓存，最后只做非写入复核。
-
-**验收条件：**
-
-- [x] Windows 完整测试、聚焦测试、模块导入、PowerShell 解析和 `git diff --check` 全通过。
-- [x] 理论多平台源契约、Bash 解析和升级场景通过；6 项 POSIX 集成按用户授权继续跳过，未表述为真实 Linux 证明。
-- [x] 仅删除仓库内 `.venv/` 之外的两个 `__pycache__/`；未发现其他白名单候选，保护项零删除。
-
-**验证顺序：**
+### 8A 本地可重复门
 
 ```powershell
 $env:PYTHONUTF8='1'
 .\.venv\Scripts\python.exe -m unittest discover -s work-products/tests -p test_chain_proxy.py -v
+.\.venv\Scripts\python.exe -m unittest discover -s work-products/tests -p test_measurement_flow.py -v
 .\.venv\Scripts\python.exe -m unittest discover -s work-products/tests -v
-.\.venv\Scripts\python.exe -X utf8 -c "import core; import core.app"
+$files = @('setup.ps1', 'scripts/git_sync.ps1', 'scripts/update_fork.ps1')
+foreach ($file in $files) { [void][scriptblock]::Create((Get-Content -LiteralPath $file -Raw -Encoding utf8)) }
+bash -n setup.sh scripts/git_sync.sh scripts/update_fork.sh
+node --test ..\CfGfwAX\work-products\tests\chain_proxy.test.mjs
 git diff --check
 ```
 
-1. 记录缓存候选的仓库相对路径、Git 跟踪状态、链接状态和白名单分类。
-2. 有任何不明项即停止，不删除。
-3. 删除白名单缓存；不得在删除后重跑会重新生成缓存的 Python 测试。
-4. 仅复核缓存候选为空、保护目录/用户文件存在、Git 状态只含预期变更。
+还须执行脱敏扫描，确认 diff、测试夹具和捕获日志不含真实订阅、Token、UUID、完整 VLESS URI、`/video/` 密文或 SOCKS5 凭据。
 
-**依赖：** Task 10；若第二期尚未获准，则只完成第一期验证，不执行最终布局结论或缓存清理。
+### 8B 理论跨平台门与可用真实链路
 
-**回滚：** 代码和路径变更整体回滚；缓存不可恢复但均可再生。任何配置、输出、备份、`.sing-box/` 或用户文件都不属于回滚删除范围。
+- Windows/Linux：本次按用户授权，以共享 Python 入口、PowerShell/Bash 语法、平台矩阵、setup 契约和 Xray 配置检查作为理论跨平台证据；不冒充真实 Linux 或空环境 setup。
+- 固定版本的 WS、gRPC、XHTTP `stream-one` 均须通过配置与消费者契约。用户当前真实订阅实际提供的类型执行 SOCKS HTTPS；未提供的类型标为仅理论证明，不因此单独判定 NO-GO。
+- 真实链式开关为 `true` 时，记录预检先于候选抓取；故意制造订阅/连接失败时，确认候选请求/TCP 为 0、输出和外部发布不变、调度未启用。
+- 成功路径完成一次真实链式优选，确认订阅只获取一次，并单独报告 Xray 版本、传输类型、setup 平台与结果；证据必须脱敏。
+- 独立评估完整优选后的结果质量：最终节点数量/配额、链式成功率与延迟/带宽资格、排序及输出一致性分别记录为通过、失败或未执行；进程成功退出不能自动推断结果质量通过。
 
-## Task 12：将内部包名收敛为 core
+**验收标准**
 
-**范围：** 按用户 2026-08-03 的明确要求，将容易与仓库名混淆的内部包目录改为 `core/`，同步所有导入、模块命令、平台脚本、测试、三语文档与规则；不保留旧包别名。
+- 8A 全绿且无敏感信息。
+- 8B 的 Windows/Linux 理论证据、真实订阅/出口、WS、gRPC、XHTTP `stream-one` 与完整优选结果质量分别陈述为理论通过、真实通过、失败或未执行；不得混写。
+- `v26.3.27` 必须通过三类传输的静态配置/消费者契约，且当前订阅的实际 XHTTP 类型须真实通过；真实 WS/gRPC 和空环境 setup 在本次用户授权下不是放行前提。
 
-**验收条件：**
+**依赖**：Task 1 至 Task 7。
+**预计文件**：无；仅当回归定位出本范围缺陷时回到对应任务做最小修正。
+**规模**：M（外部环境时间另计）。
+**回滚**：任一安全、顺序、当前真实 XHTTP 或理论跨平台门失败即 NO-GO；整体回滚 Xray 单内核、共享预检、setup 调度门和配套文档，不保留半迁移发布候选。
 
-- [x] `core/` 是唯一内部 Python 包目录，旧名和中间名目录均不存在。
-- [x] 根入口、setup、同步脚本和包内绝对导入全部使用 `core`。
-- [x] 代码、测试、三语 README、规则和当前工作流文档不存在旧包路径消费者。
-- [x] 聚焦布局、完整回归、模块导入及平台静态门禁通过。
+## 完成定义与停止条件
 
-**回滚：** 将 `core/` 及全部引用整体改回原包名；不得增加双包兼容层。
+只有以下条件全部成立，实施才可标记完成：
 
-## 风险与停止条件
+1. 本次用户批准的 Windows/Linux 理论门、真实 XHTTP 预检及本地可重复验收全部有证据；明确豁免的空环境、真实 Linux、真实 WS/gRPC 和完整优选质量继续标为未执行。
+2. 链式 `true` 的所有失败路径在候选请求、TCP、写文件、DNS/GitHub 和调度之前停止。
+3. WS、gRPC、XHTTP 全部只有 Xray 运行路径，XHTTP 仅 `stream-one`。
+4. Windows/Linux setup 共享预检且项目 `.venv`/`.xray` 修复幂等、安全。
+5. 本地/static、实际 Xray 配置检查、Windows/Linux 理论证据、真实订阅/出口分别报告，不混为一谈。
 
-| 风险 | 门禁与缓解 |
-|---|---|
-| 包迁移把运行时文件写进 `core/` | Task 1 统一路径；每个纵向切片检查根路径断言 |
-| updater 自身在快进时被移动 | 第一期根包装器 + 旧布局升级夹具；新版 setup 必须重新加载 |
-| 旧计划任务/cron 中断 | 第一期保留调度包装器；setup 同时清理旧命令并注册模块命令 |
-| 配置模板切换丢失敏感配置 | Windows/Linux 分阶段但不分阶段发布；配置合并和失败回滚测试 |
-| 跨仓测试命令继续陈旧 | Task 9 先取授权，再做最小规则更新 |
-| 缓存清理误删用户数据 | 最终测试后、白名单、仓库边界、Git/链接检查；不明即停 |
-| 理论结果被误当作真实 Linux 证明 | Checkpoint B 明确记录用户授权、静态/模拟证据和 6 项 POSIX skip |
+遇到以下任一情况立即停止并请求用户决策：
+
+- 固定 Xray 无法无损映射订阅中已设置的 ECH、fragment、fp、flow 或传输字段；
+- 官方固定资产不能覆盖现有支持矩阵；
+- CfGfwAX 生产者契约与 approved spec 不一致；
+- 需要新增第三方依赖、支持其他 XHTTP mode、改评分/调度/发布策略；
+- 真实验收需要修改当前用户调度、系统包或外部环境而尚未获得授权。
 
 ## 授权状态
 
-1. 已授权：Task 9 可同时修改 `../CfGfwAX/AGENTS.md` 与 `../CGAX-Pages/AGENTS.md`，仅把 `tests.test_chain_proxy` 修正为迁移后的聚焦命令。
-2. 已授权：用户于 2026-08-03 再次明确继续 `@uxu-code:build auto`，授权独立执行第二期兼容包装器和根模板副本删除。
+- `work-products/SPEC.md`：已批准。
+- 本实施计划及本次 `@debug` 修复/同步：已批准。
+- commit、push、部署、真实调度与外部环境操作：尚未授权。

@@ -19,13 +19,16 @@
     "_comment_BANDWIDTH_CANDIDATES": "进入带宽测速的候选节点数（从TCP通过者中选取前N个）",
 
     "CHAIN_PROXY_TEST_ENABLED": false,
-    "_comment_CHAIN_PROXY_TEST_ENABLED": "可选链式测速；true=从TCP前N个候选开始测试 客户端→CF节点→CfGfwAX→SOCKS5→目标服务器，false=保持原直连流程",
+    "_comment_CHAIN_PROXY_TEST_ENABLED": "可选链式测速开关，必须是JSON布尔值；true=在候选抓取和调度注册前执行真实SOCKS HTTPS预检，false=不请求订阅或Xray并保持原直连流程",
 
     "CHAIN_PROXY_SUBSCRIPTION_URL": "",
-    "_comment_CHAIN_PROXY_SUBSCRIPTION_URL": "CfGfwAX mixed订阅地址，例如 https://代理域名/sub?token=***&target=mixed；含Token，请勿提交或打印",
+    "_comment_CHAIN_PROXY_SUBSCRIPTION_URL": "CfGfwAX mixed/base64订阅地址，例如 https://代理域名/sub?token=***&target=mixed；含Token，只能写入本机config.json，首次setup不会生成，请勿提交或打印",
 
     "CHAIN_PROXY_CORE_PATH": "",
-    "_comment_CHAIN_PROXY_CORE_PATH": "sing-box 1.13+可执行文件路径；留空时依次从PATH和专案内.sing-box查找，仍缺失时按设备自动下载官方稳定版。ECH、TLS分片和DoH链式测速需要该版本，下载或校验失败时会停止而非降级直连",
+    "_comment_CHAIN_PROXY_CORE_PATH": "Xray 26.3.27可执行文件路径；正式自动安装仅支持Windows/Linux，留空时按专案内.xray、PATH、固定官方资产顺序发现或安装并校验；支持WS、gRPC、XHTTP stream-one，失败停止且不降级直连",
+
+    "CHAIN_PROXY_PREFLIGHT_URL": "https://www.cloudflare.com/cdn-cgi/trace",
+    "_comment_CHAIN_PROXY_PREFLIGHT_URL": "链式预检专用的轻量HTTPS 2xx目标；不要使用CfGfwAX明确禁止代理的speed.cloudflare.com，也不要包含认证信息",
 
     "CHAIN_PROXY_TEST_SAMPLES": 3,
     "_comment_CHAIN_PROXY_TEST_SAMPLES": "每个候选节点的全链路HTTP样本数，最少按3次执行",

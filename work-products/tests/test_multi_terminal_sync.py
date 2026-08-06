@@ -166,6 +166,90 @@ class SetupScriptTests(unittest.TestCase):
         self.assertIn('手动运行：& `"$PythonExePath`" -X utf8', script)
         self.assertNotIn("pip show", script)
 
+    def test_setup_repairs_only_real_project_virtualenvs(self):
+        windows = (PROJECT_ROOT / "setup.ps1").read_text(encoding="utf-8-sig")
+        linux = (PROJECT_ROOT / "setup.sh").read_text(encoding="utf-8")
+
+        self.assertIn("function Test-ProjectVenvReady", windows)
+        self.assertIn("$dependenciesReady = Test-ProjectVenvReady", windows)
+        self.assertIn("if (-not $dependenciesReady)", windows)
+        self.assertIn("ReparsePoint", windows)
+        self.assertIn(".venv.repair-", windows)
+        self.assertIn("Get-BootstrapPython -ExcludeProjectVenv", windows)
+        self.assertNotIn("$env:VIRTUAL_ENV", windows)
+        self.assertIn("Move-Item -LiteralPath $venvBackupPath", windows)
+        self.assertIn("Restore-ProjectVenv", windows)
+        self.assertIn("Remove-ProjectVenvBackup", windows)
+        self.assertNotIn("Activate.ps1", windows)
+
+        self.assertIn("validate_project_venv()", linux)
+        self.assertIn("VENV_NEEDS_REPAIR=false", linux)
+        self.assertIn("VENV_NEEDS_REPAIR=true", linux)
+        self.assertIn("if [[ $VENV_NEEDS_REPAIR == true ]]", linux)
+        self.assertIn("[[ -L $VENV_DIR ]]", linux)
+        self.assertIn(".venv.repair-", linux)
+        self.assertIn('run_as_target "$BOOTSTRAP_PYTHON" -m venv "$SCRIPT_DIR/.venv"', linux)
+        self.assertIn('run_as_target mv "$VENV_BACKUP" "$VENV_DIR"', linux)
+        self.assertIn("restore_project_venv", linux)
+        self.assertIn("discard_project_venv_backup", linux)
+        self.assertNotIn("bin/activate", linux)
+
+    def test_setup_bootstrap_does_not_reuse_an_activated_virtualenv(self):
+        windows = (PROJECT_ROOT / "setup.ps1").read_text(encoding="utf-8-sig")
+        linux = (PROJECT_ROOT / "setup.sh").read_text(encoding="utf-8")
+
+        self.assertIn("function Test-IsVirtualEnvironmentPython", windows)
+        self.assertIn(
+            "Get-Command python.exe -CommandType Application -All", windows
+        )
+        self.assertIn("-not (Test-IsVirtualEnvironmentPython", windows)
+        self.assertNotIn("$env:VIRTUAL_ENV", windows)
+
+        self.assertIn("find_bootstrap_python()", linux)
+        self.assertIn("BOOTSTRAP_PYTHON=$(find_bootstrap_python)", linux)
+        self.assertIn(
+            'run_as_target "$BOOTSTRAP_PYTHON" -m venv "$SCRIPT_DIR/.venv"',
+            linux,
+        )
+
+    def test_setup_preflight_is_between_schedule_removal_and_registration(self):
+        windows = (PROJECT_ROOT / "setup.ps1").read_text(encoding="utf-8-sig")
+        linux = (PROJECT_ROOT / "setup.sh").read_text(encoding="utf-8")
+
+        windows_gate = windows.split(
+            "# ---------- 链式预检与调度门 ----------", 1
+        )[1]
+        self.assertLess(
+            windows_gate.index("Remove-ProjectScheduledTask"),
+            windows_gate.index('"core.chain_proxy", "preflight"'),
+        )
+        self.assertLess(
+            windows_gate.index('"core.chain_proxy", "preflight"'),
+            windows_gate.index("RegisterTaskDefinition"),
+        )
+
+        linux_gate = linux.split(
+            "# ---------- 5. 链式预检与 cron 门 ----------", 1
+        )[1]
+        first_write = linux_gate.index('write_target_crontab')
+        preflight = linux_gate.index("-m core.chain_proxy preflight")
+        registration = linux_gate.index('echo "$CRON_COMMENT"')
+        self.assertLess(first_write, preflight)
+        self.assertLess(preflight, registration)
+        self.assertIn('run_as_target "$PYTHON_PATH"', linux_gate)
+
+    def test_linux_removes_existing_project_cron_before_config_can_fail(self):
+        linux = (PROJECT_ROOT / "setup.sh").read_text(encoding="utf-8")
+        schedule_parse = linux.index("if ! SCHEDULE_ENABLED=$(")
+        removals = [
+            index
+            for index in range(len(linux))
+            if linux.startswith("remove_project_cron_entries || exit 1", index)
+        ]
+
+        self.assertGreaterEqual(len(removals), 2)
+        self.assertLess(removals[-1], schedule_parse)
+
     def test_setup_is_the_single_entrypoint_for_safe_updates(self):
         windows_setup = (PROJECT_ROOT / "setup.ps1").read_text(
             encoding="utf-8-sig"
@@ -251,7 +335,7 @@ class SetupScriptTests(unittest.TestCase):
             for line in (PROJECT_ROOT / "requirements.txt").read_text().splitlines()
             if line.strip() and not line.startswith("#")
         }
-        self.assertEqual({"requests", "aiohttp"}, requirements)
+        self.assertEqual({"requests", "aiohttp>=3.14.3"}, requirements)
 
     def test_update_scripts_do_not_force_reset_or_embed_tokens(self):
         for name in ("scripts/update_fork.ps1", "scripts/update_fork.sh"):
