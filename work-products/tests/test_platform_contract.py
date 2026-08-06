@@ -69,6 +69,7 @@ class TheoreticalPlatformContractTests(unittest.TestCase):
             "修复项目内 `.venv`/`.xray`",
             "不降级为直连",
             "首次运行不会生成私密订阅地址",
+            "speed.cloudflare.com",
         ):
             self.assertIn(phrase, simplified)
         for phrase in (
@@ -78,6 +79,7 @@ class TheoreticalPlatformContractTests(unittest.TestCase):
             "修復專案內 `.venv`/`.xray`",
             "不降級為直連",
             "首次執行不會產生私密訂閱網址",
+            "speed.cloudflare.com",
         ):
             self.assertIn(phrase, traditional)
         for phrase in (
@@ -87,6 +89,7 @@ class TheoreticalPlatformContractTests(unittest.TestCase):
             "repairs only project-local `.venv`/`.xray`",
             "never falls back to direct testing",
             "first run does not generate a private subscription URL",
+            "speed.cloudflare.com",
         ):
             self.assertIn(phrase, english)
 
@@ -103,6 +106,10 @@ class TheoreticalPlatformContractTests(unittest.TestCase):
         self.assertIn(".xray", core_comment)
         self.assertIn("WS、gRPC、XHTTP stream-one", core_comment)
         self.assertNotIn("sing-box", core_comment)
+        self.assertIn(
+            "CfGfwAX 链式模式会跳过其明确禁止的 speed.cloudflare.com",
+            config["_comment_BANDWIDTH_URL_TEMPLATE"],
+        )
         self.assertEqual(canonical.read_bytes(), legacy_bridge.read_bytes())
 
         guidance = (PROJECT_ROOT / "AGENTS.md").read_text(encoding="utf-8")

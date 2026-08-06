@@ -19,4 +19,3 @@ cfnb.log
 !/work-products/tests/**
 /work-products/tests/**/__pycache__/
 /work-products/tests/**/*.py[cod]
-.codegraph/

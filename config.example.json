@@ -244,7 +244,7 @@
     "_comment_BANDWIDTH_RETRY_DELAY": "带宽测速重试间隔（秒）",
 
     "BANDWIDTH_URL_TEMPLATE": "https://speed.cloudflare.com/__down?bytes={bytes}",
-    "_comment_BANDWIDTH_URL_TEMPLATE": "带宽测速 URL 模板，{bytes} 将被替换为实际字节数；目标应直接返回2xx，重定向会被拒绝以免离开候选节点",
+    "_comment_BANDWIDTH_URL_TEMPLATE": "带宽测速 URL 模板，{bytes} 将被替换为实际字节数；目标应直接返回2xx，重定向会被拒绝以免离开候选节点；CfGfwAX 链式模式会跳过其明确禁止的 speed.cloudflare.com，如需链式带宽指标请使用自有且允许测速的2xx下载目标",
 
     "BANDWIDTH_PROCESS_BUFFER": 2,
     "_comment_BANDWIDTH_PROCESS_BUFFER": "带宽测速 curl 进程额外缓冲时间（秒）",

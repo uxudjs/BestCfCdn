@@ -130,6 +130,31 @@ class MeasurementFlowTests(unittest.TestCase):
         self.assertEqual("", command[command.index("--noproxy") + 1])
         self.assertNotIn("--connect-to", command)
 
+    def test_chain_http_uses_the_preflight_target_not_blocked_speedtest(self):
+        target = "https://www.cloudflare.com/cdn-cgi/trace"
+        completed = subprocess.CompletedProcess(
+            [],
+            0,
+            stdout=f"{main._CHAIN_WRITE_OUT_MARKER}200\t0.2\t0.3\n",
+            stderr="",
+        )
+        with mock.patch.object(
+            main, "CHAIN_PROXY_PREFLIGHT_URL", target, create=True
+        ), mock.patch.multiple(
+            main,
+            CHAIN_PROXY_MIN_SUCCESS_RATE=0.66,
+            HTTP_TEST_CONNECT_TIMEOUT=1,
+            HTTP_TEST_TIMEOUT=2,
+            BANDWIDTH_PROCESS_BUFFER=1,
+        ), mock.patch(
+            "core.app.subprocess.run", return_value=completed
+        ) as run:
+            main.measure_chain_http(
+                "104.16.0.1:443#US", 31001, "curl.exe", samples=3
+            )
+
+        self.assertEqual(target, run.call_args.args[0][-1])
+
     def test_bandwidth_curl_automatically_negotiates_http_version(self):
         def fake_run(command, **kwargs):
             if any(flag in command for flag in ("--http2", "--http1.1", "--http3")):
@@ -382,6 +407,43 @@ class MeasurementFlowTests(unittest.TestCase):
         self.assertEqual(1, rounds)
         bandwidth_filter.assert_called_once_with([node])
         sleep.assert_not_called()
+
+    def test_chain_bandwidth_skips_cfgfwax_blocked_speedtest_target(self):
+        node = "104.16.0.1:443#US"
+        ports = {node: 31001}
+        output = io.StringIO()
+        with mock.patch.object(
+            main,
+            "BANDWIDTH_URL",
+            "https://speed.cloudflare.com/__down?bytes=2097152",
+        ), mock.patch("core.app.bandwidth_filter") as bandwidth_filter, redirect_stdout(
+            output
+        ):
+            results, failures, rounds = main.bandwidth_filter_with_retry(
+                [node], ports
+            )
+
+        self.assertEqual(([], {}, 0), (results, failures, rounds))
+        bandwidth_filter.assert_not_called()
+        self.assertIn("CfGfwAX", output.getvalue())
+        self.assertIn("跳过链式带宽测速", output.getvalue())
+
+    def test_chain_bandwidth_keeps_custom_nonblocked_target(self):
+        node = "104.16.0.1:443#US"
+        ports = {node: 31001}
+        with mock.patch.object(
+            main,
+            "BANDWIDTH_URL",
+            "https://download.example.com/test.bin",
+        ), mock.patch(
+            "core.app.bandwidth_filter", return_value=[]
+        ) as bandwidth_filter:
+            results, failures, rounds = main.bandwidth_filter_with_retry(
+                [node], ports
+            )
+
+        self.assertEqual(([], {}, 1), (results, failures, rounds))
+        bandwidth_filter.assert_called_once_with([node], ports)
 
     def test_availability_all_failures_do_not_restore_unverified_candidates(self):
         candidates = ["104.16.0.1:443#US"]

@@ -201,6 +201,7 @@ def load_config():
         "CHAIN_PROXY_TEST_ENABLED": False,
         "CHAIN_PROXY_SUBSCRIPTION_URL": "",
         "CHAIN_PROXY_CORE_PATH": "",
+        "CHAIN_PROXY_PREFLIGHT_URL": "https://www.cloudflare.com/cdn-cgi/trace",
         "CHAIN_PROXY_TEST_SAMPLES": 3,
         "CHAIN_PROXY_MIN_SUCCESS_RATE": 0.66,
         "CHAIN_PROXY_WORKERS": 4,
@@ -342,6 +343,7 @@ BANDWIDTH_CANDIDATES = cfg["BANDWIDTH_CANDIDATES"]
 CHAIN_PROXY_TEST_ENABLED = cfg["CHAIN_PROXY_TEST_ENABLED"]
 CHAIN_PROXY_SUBSCRIPTION_URL = cfg["CHAIN_PROXY_SUBSCRIPTION_URL"]
 CHAIN_PROXY_CORE_PATH = cfg["CHAIN_PROXY_CORE_PATH"]
+CHAIN_PROXY_PREFLIGHT_URL = cfg["CHAIN_PROXY_PREFLIGHT_URL"]
 CHAIN_PROXY_TEST_SAMPLES = cfg["CHAIN_PROXY_TEST_SAMPLES"]
 CHAIN_PROXY_MIN_SUCCESS_RATE = cfg["CHAIN_PROXY_MIN_SUCCESS_RATE"]
 CHAIN_PROXY_WORKERS = cfg["CHAIN_PROXY_WORKERS"]
@@ -1269,7 +1271,7 @@ def measure_chain_http(node, proxy_port, curl_path, samples=None):
     if not 0 < min_success_rate <= 1:
         raise ChainProxyError("CHAIN_PROXY_MIN_SUCCESS_RATE 必须大于 0 且不超过 1")
 
-    target_url = BANDWIDTH_URL_TEMPLATE.format(bytes=1)
+    target_url = CHAIN_PROXY_PREFLIGHT_URL
     null_device = "NUL" if sys.platform == "win32" else "/dev/null"
     write_out = (
         f"{_CHAIN_WRITE_OUT_MARKER}%{{http_code}}\t"
@@ -1458,6 +1460,16 @@ def _bandwidth_target(url):
     if logical_port is None:
         logical_port = 443 if parsed.scheme == "https" else 80
     return parsed.hostname, logical_port
+
+
+def _cfgfwax_blocks_bandwidth_target(url):
+    try:
+        hostname = (urlsplit(str(url)).hostname or "").lower().rstrip(".")
+    except ValueError:
+        return False
+    return hostname == "speed.cloudflare.com" or hostname.endswith(
+        ".speed.cloudflare.com"
+    )
 
 
 def _bandwidth_settings():
@@ -1771,6 +1783,13 @@ def bandwidth_filter(candidates, proxy_ports=None):
 
 
 def bandwidth_filter_with_retry(candidates, proxy_ports=None):
+    if proxy_ports is not None and _cfgfwax_blocks_bandwidth_target(BANDWIDTH_URL):
+        print(
+            "\n跳过链式带宽测速：CfGfwAX 明确禁止 speed.cloudflare.com；"
+            "本轮按全链路 HTTP 延迟、抖动、成功率和 TCP 延迟排名。"
+        )
+        return [], {}, 0
+
     successful = {}
     failures = {}
     pending = list(candidates)
@@ -2366,11 +2385,20 @@ def _run():
 
     bandwidth_available = bool(bw_results)
     if not bandwidth_available:
-        print("\n带宽测速未获得有效结果，将使用已通过后续检测的节点按延迟体验排序。")
-        send_wxpusher_notification(
-            content=f"带宽测速完成 {bandwidth_rounds} 轮后仍无有效结果，已降级使用通过可用性/HTTP 检测的节点按延迟体验排序。",
-            summary="带宽测速全部失败"
-        )
+        if CHAIN_PROXY_TEST_ENABLED and bandwidth_rounds == 0:
+            send_wxpusher_notification(
+                content=(
+                    "CfGfwAX 明确禁止默认 speed.cloudflare.com 目标，"
+                    "链式带宽测速未执行；已按全链路 HTTP 与 TCP 指标排名。"
+                ),
+                summary="链式带宽测速已跳过",
+            )
+        else:
+            print("\n带宽测速未获得有效结果，将使用已通过后续检测的节点按延迟体验排序。")
+            send_wxpusher_notification(
+                content=f"带宽测速完成 {bandwidth_rounds} 轮后仍无有效结果，已降级使用通过可用性/HTTP 检测的节点按延迟体验排序。",
+                summary="带宽测速全部失败"
+            )
         fallback_candidates = candidates_after_http
         scoring_results = [(node, 0.0) for node in fallback_candidates]
     else:

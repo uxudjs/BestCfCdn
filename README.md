@@ -82,7 +82,7 @@
 
 支持 CfGfwAX VLESS + WebSocket、gRPC 与 XHTTP `stream-one` + TLS，以及 ECH、TLS 分片、浏览器指纹和 flow。启用后，setup 与 `main.py` 会在候选抓取、TCP 测试或调度注册前执行前置真实 SOCKS HTTPS 连接，最多尝试三个订阅端点，并验证 `/video/` 为全局 SOCKS5。无效字段、不可用核心或无法无损映射的配置都会停止，**不降级为直连**。
 
-setup 只修复项目内 `.venv`/`.xray`；旧 `.sing-box/` 仅供人工回滚，不执行、不修改。链式排名为：HTTP 延迟 40%、带宽 30%、抖动 20%、成功率 10%。订阅 URL 含 Token，只能保存在本地 `config.json`，不要写入配置模板、日志或公开仓库。
+setup 只修复项目内 `.venv`/`.xray`；旧 `.sing-box/` 仅供人工回滚，不执行、不修改。全链路 HTTP 样本使用已验证的 `CHAIN_PROXY_PREFLIGHT_URL`。CfGfwAX 明确禁止代理访问默认的 `speed.cloudflare.com`，因此默认链式模式会零请求跳过带宽测试，并按 HTTP 延迟、抖动、成功率和 TCP 延迟排名；配置不受阻的自有 2xx 下载目标后才保留链式带宽指标。直连测速不变。订阅 URL 含 Token，只能保存在本地 `config.json`，不要写入配置模板、日志或公开仓库。
 
 </details>
 
@@ -187,7 +187,7 @@ setup 只修复项目内 `.venv`/`.xray`；旧 `.sing-box/` 仅供人工回滚�
 
 支援 CfGfwAX VLESS + WebSocket、gRPC 與 XHTTP `stream-one` + TLS，以及 ECH、TLS 分片、瀏覽器指紋和 flow。啟用後，setup 與 `main.py` 會在候選抓取、TCP 測試或排程註冊前執行前置真實 SOCKS HTTPS 連線，最多嘗試三個訂閱端點，並驗證 `/video/` 為全域 SOCKS5。無效欄位、不可用核心或無法無損映射的設定都會停止，**不降級為直連**。
 
-setup 只修復專案內 `.venv`/`.xray`；舊 `.sing-box/` 僅供人工回滾，不執行、不修改。鏈式排名為：HTTP 延遲 40%、頻寬 30%、抖動 20%、成功率 10%。訂閱網址含 Token，只能儲存在本機 `config.json`，不要寫入設定範本、日誌或公開倉庫。
+setup 只修復專案內 `.venv`/`.xray`；舊 `.sing-box/` 僅供人工回滾，不執行、不修改。全鏈路 HTTP 樣本使用已驗證的 `CHAIN_PROXY_PREFLIGHT_URL`。CfGfwAX 明確禁止代理存取預設的 `speed.cloudflare.com`，因此預設鏈式模式會以零請求跳過頻寬測試，並依 HTTP 延遲、抖動、成功率與 TCP 延遲排名；設定不受阻的自有 2xx 下載目標後才保留鏈式頻寬指標。直連測速不變。訂閱網址含 Token，只能儲存在本機 `config.json`，不要寫入設定範本、日誌或公開倉庫。
 
 </details>
 
@@ -292,7 +292,7 @@ Set these in `config.json`:
 
 Supports CfGfwAX VLESS + WebSocket, gRPC, and XHTTP `stream-one` + TLS, including ECH, TLS fragmentation, browser fingerprints, and flow. When enabled, setup and `main.py` preflight real SOCKS HTTPS before candidate fetching, TCP tests, or scheduler registration, try at most three subscription endpoints, and verify global SOCKS5 semantics in `/video/`. Invalid fields, an unavailable core, or settings that cannot be mapped losslessly stop the run; it **never falls back to direct testing**.
 
-Setup repairs only project-local `.venv`/`.xray`; legacy `.sing-box/` is retained for manual rollback and is never executed or modified. Chain ranking is HTTP latency 40%, bandwidth 30%, jitter 20%, and success rate 10%. The subscription URL contains a token: keep it only in local `config.json`, never in the configuration template, logs, or public repositories.
+Setup repairs only project-local `.venv`/`.xray`; legacy `.sing-box/` is retained for manual rollback and is never executed or modified. End-to-end HTTP samples use the validated `CHAIN_PROXY_PREFLIGHT_URL`. CfGfwAX explicitly blocks proxy access to the default `speed.cloudflare.com`, so default chain mode makes zero bandwidth requests and ranks by HTTP latency, jitter, success rate, and TCP latency; chain bandwidth is retained only when an unblocked, self-owned 2xx download target is configured. Direct testing is unchanged. The subscription URL contains a token: keep it only in local `config.json`, never in the configuration template, logs, or public repositories.
 
 </details>
 
