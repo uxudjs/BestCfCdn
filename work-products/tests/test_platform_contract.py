@@ -188,6 +188,9 @@ class TheoreticalPlatformContractTests(unittest.TestCase):
         validation = linux.index("if [[ ! -d $PROJECT_ROOT/.git ]]")
         fetch = linux.index('fetch origin "$BRANCH"')
         self.assertLess(validation, fetch)
+        self.assertIn(
+            'REPOSITORY_PREFIX="$(git rev-parse --show-prefix)"', linux
+        )
         for required in (
             "$PROJECT_ROOT/.git",
             "$PROJECT_ROOT/main.py",

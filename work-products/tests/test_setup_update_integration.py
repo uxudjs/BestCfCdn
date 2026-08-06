@@ -160,6 +160,26 @@ class SetupUpdateIntegrationTests(unittest.TestCase):
             ),
         )
 
+    def test_first_setup_updates_through_symlinked_repository_path(self):
+        self._push_v2()
+        client_alias = self.root / "client-alias"
+        client_alias.symlink_to(self.client, target_is_directory=True)
+
+        completed = run(
+            ["bash", str(client_alias / "setup.sh")],
+            self.root,
+            env=self._environment(),
+        )
+
+        with (self.client / "config.json").open(encoding="utf-8") as file:
+            config = json.load(file)
+        self.assertEqual(42, config["NEW_SETTING"])
+        self.assertNotIn("当前不是可更新的 Git 仓库", completed.stdout)
+        self.assertEqual(
+            run(["git", "rev-parse", "HEAD"], self.seed).stdout,
+            run(["git", "rev-parse", "HEAD"], self.client).stdout,
+        )
+
     def test_updater_preserves_values_adds_fields_and_is_idempotent(self):
         local_config = {
             "GITHUB_SYNC_FIELD_ID": "device-a",

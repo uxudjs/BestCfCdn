@@ -77,8 +77,8 @@ git rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
     echo -e "${RED}❌ 当前目录不是 Git 仓库。${NC}" >&2
     exit 2
 }
-REPOSITORY_ROOT="$(git rev-parse --show-toplevel)"
-if [[ $REPOSITORY_ROOT != "$PROJECT_ROOT" ]]; then
+REPOSITORY_PREFIX="$(git rev-parse --show-prefix)"
+if [[ -n $REPOSITORY_PREFIX ]]; then
     echo -e "${RED}❌ scripts/update_fork.sh 的父目录不是当前 Git 仓库根目录，已拒绝更新。${NC}" >&2
     exit 2
 fi

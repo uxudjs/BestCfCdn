@@ -278,6 +278,8 @@ class SetupScriptTests(unittest.TestCase):
         self.assertIn("if (-not $NonInteractive)", windows_update)
 
         self.assertIn('UPDATE_HELPER="$SCRIPT_DIR/scripts/update_fork.sh"', linux_setup)
+        self.assertIn("rev-parse --show-prefix", linux_setup)
+        self.assertNotIn('PROJECT_GIT_ROOT == "$SCRIPT_DIR"', linux_setup)
         self.assertIn("--preserve-missing-config", linux_setup)
         self.assertIn('BESTCFCDN_SETUP_REEXEC_DEPTH="$NEXT_REEXEC_DEPTH"', linux_setup)
         self.assertIn("BESTCFCDN_SETUP_RETRY_AUTO_UPDATE", linux_setup)

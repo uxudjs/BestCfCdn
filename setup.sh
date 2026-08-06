@@ -292,11 +292,16 @@ SETUP_RETRY_AUTO_UPDATE="${BESTCFCDN_SETUP_RETRY_AUTO_UPDATE:-0}"
 [[ $SETUP_REEXEC_DEPTH =~ ^[0-9]+$ ]] || SETUP_REEXEC_DEPTH=0
 if [[ $SETUP_REEXEC_DEPTH == 0 || $SETUP_RETRY_AUTO_UPDATE == 1 ]]; then
     UPDATE_HELPER="$SCRIPT_DIR/scripts/update_fork.sh"
-    PROJECT_GIT_ROOT=""
+    PROJECT_GIT_PREFIX=""
+    IS_PROJECT_GIT_ROOT=false
     if command_exists git && [[ -f $UPDATE_HELPER ]]; then
-        PROJECT_GIT_ROOT="$(run_as_target git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
+        if PROJECT_GIT_PREFIX="$(
+            run_as_target git -C "$SCRIPT_DIR" rev-parse --show-prefix 2>/dev/null
+        )"; then
+            [[ -z $PROJECT_GIT_PREFIX ]] && IS_PROJECT_GIT_ROOT=true
+        fi
     fi
-    if [[ $PROJECT_GIT_ROOT == "$SCRIPT_DIR" ]]; then
+    if [[ $IS_PROJECT_GIT_ROOT == true ]]; then
         CAN_AUTO_UPDATE=true
         if [[ $CONFIG_EXISTED_AT_START == true \
             && ! -x $SCRIPT_DIR/.venv/bin/python ]] \
